@@ -7,6 +7,8 @@ type RotParser* = object
   line*, column*: int
   previousCol: int
   current: char
+  recordLineIndent: bool
+  currentLineIndent: int
 
 proc initRotParser*(str: sink string = ""): RotParser =
   result = RotParser(vein: initVein(str))
@@ -38,7 +40,7 @@ proc resetPos*(parser: var RotParser) =
     dec parser.line
 
 proc nextChar*(parser: var RotParser): bool =
-  ## updates line and column considering \r\n
+  ## updates line and column considering \r\n, tracks indent
   parser.previousPos = parser.pos
   parser.previousCol = parser.column
   let c =
@@ -57,9 +59,16 @@ proc nextChar*(parser: var RotParser): bool =
       (parser.current == '\r' and (inc parser.pos;
         parser.peekCharOrZero() != '\n' and
           (dec parser.pos; true))):
+    parser.recordLineIndent = true
+    parser.currentLineIndent = 0
     parser.line += 1
     parser.column = 0
   else:
+    if parser.recordLineIndent:
+      if parser.current in Whitespace:
+        inc parser.currentLineIndent
+      else:
+        parser.recordLineIndent = false
     parser.column += 1
   parser.vein.setFreeBefore(parser.previousPos)
   result = true
@@ -97,6 +106,113 @@ proc parseQuoted*(parser: var RotParser, quote: char): string =
       result.add(ch)
   parser.error("expected closing quote for " & $quote)
 
+proc parseColonString*(parser: var RotParser): string =
+  result = ""
+  let startIndent = parser.currentLineIndent
+  var newline = false
+  var finalIndent = startIndent
+  # start:
+  for ch in parser.chars:
+    case ch
+    of Whitespace - Newlines:
+      discard
+    of Newlines:
+      newline = true
+    else:
+      finalIndent = parser.currentLineIndent
+      parser.resetPos()
+      break
+  if newline:
+    var currentLine = ""
+    template addInLine(c: char) =
+      if newlineQueue.len != 0:
+        result.add(newlineQueue)
+        newlineQueue = ""
+      currentLine.add(ch)
+    var newlineQueue = ""
+    var recordIndent = false
+    var indent = finalIndent
+    for ch in parser.chars:
+      case ch
+      of Whitespace - Newlines:
+        if indent >= finalIndent:
+          addInLine(ch)
+        if recordIndent:
+          inc indent
+      of Newlines:
+        result.add(currentLine)
+        currentLine = ""
+        newlineQueue.add(ch)
+        recordIndent = true
+        indent = 0
+      else:
+        if indent >= finalIndent:
+          addInLine(ch)
+        else:
+          parser.resetPos()
+          return
+        recordIndent = false
+    result.add(currentLine)
+  else:
+    for ch in parser.chars:
+      case ch
+      of Newlines:
+        parser.resetPos() # don't consume newline
+        return
+      else:
+        result.add(ch)
+
+proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase
+
+proc parseColonBlock*(parser: var RotParser): RotBlock =
+  result = RotBlock(items: @[])
+  let startIndent = parser.currentLineIndent
+  var newline = false
+  var finalIndent = startIndent
+  # start:
+  for ch in parser.chars:
+    case ch
+    of Whitespace - Newlines: discard
+    of Newlines:
+      newline = true
+    else:
+      finalIndent = parser.currentLineIndent
+      parser.resetPos()
+      break
+  if newline:
+    if finalIndent <= startIndent:
+      return
+    for ch in parser.chars:
+      case ch
+      of Whitespace - Newlines:
+        discard
+      of Newlines:
+        discard
+      of ';':
+        if parser.currentLineIndent < finalIndent:
+          parser.resetPos()
+          return
+      else:
+        if parser.currentLineIndent < finalIndent:
+          parser.resetPos()
+          return
+        else:
+          parser.resetPos()
+          let p = parsePhrase(parser, newlineSensitive = true)
+          result.items.add p
+  else:
+    for ch in parser.chars:
+      case ch
+      of Newlines:
+        parser.resetPos() # don't consume newline
+        return
+      of ';':
+        discard
+      else:
+        parser.resetPos()
+        let p = parsePhrase(parser, newlineSensitive = true)
+        result.items.add p
+
 proc parseTerm*(parser: var RotParser, start: char): Rot
 
 proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool): Rot =
@@ -130,18 +246,50 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
     of ',':
       currentlyNewlineSensitive = false
     of ';':
-      #parser.resetPos()
+      #parser.resetPos() # maybe don't consume semicolon?
       return
     of Whitespace - Newlines:
       discard
     of Newlines:
       if currentlyNewlineSensitive:
+        parser.resetPos() # don't consume newline
         return
     of ')', '}':
       # other context
       parser.resetPos()
       return
-    #of ':': XXX implement
+    of ':':
+      if not newlineSensitive:
+        parser.error("colon syntax not allowed outside of block context")
+      let colonBlock = parser.peekCharOrZero() == ':'
+      if colonBlock:
+        let gotNext = parser.nextChar()
+        assert gotNext
+      let assign = parser.peekCharOrZero() == '='
+      if assign:
+        if result.items.len != 1:
+          parser.error("expected single lhs for colon assignment")
+        let gotNext = parser.nextChar()
+        assert gotNext
+      var rhs: Rot
+      if colonBlock:
+        let b = parseColonBlock(parser)
+        rhs = Rot(kind: Block, `block`: b)
+      else:
+        let s = parseColonString(parser)
+        rhs = Rot(kind: Text, text: s)
+      if assign:
+        let lhs =
+          if result.items.len == 1: result.items[0]
+          else: Rot(kind: Phrase, phrase: result)
+        var asgn = RotAssignment()
+        new(asgn.items)
+        asgn.items.left = lhs
+        asgn.items.right = rhs
+        result = RotPhrase(items: @[Rot(kind: Assignment, assignment: asgn)])
+      else:
+        result.items.add(rhs)
+      return
     else:
       let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
       result.items.add item
