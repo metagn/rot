@@ -2,7 +2,7 @@
 
 version       = "0.1.0"
 author        = "metagn"
-description   = ""
+description   = "data format"
 license       = "MIT"
 srcDir        = "src"
 

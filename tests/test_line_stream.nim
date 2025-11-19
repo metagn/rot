@@ -6,11 +6,21 @@ else:
 import rot, rot/parser, util, std/strutils
 
 proc lineLoader(s: string): proc(): string =
-  let iter = iterator (): string =
-    for line in splitLines(s, keepEol = true):
-      yield line
-  result = proc(): string =
-    result = iter()
+  when nimvm:
+    var lines = splitLines(s, keepEol = true)
+    var i = 0
+    result = proc(): string =
+      if i < lines.len:
+        result = lines[i]
+        inc i
+      else:
+        result = ""
+  else:
+    let iter = iterator (): string =
+      for line in splitLines(s, keepEol = true):
+        yield line
+    result = proc(): string =
+      result = iter()
 
 test "line stream":
   let s = """

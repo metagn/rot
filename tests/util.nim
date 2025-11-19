@@ -28,7 +28,7 @@ proc `==`*(a, b: Rot): bool {.noSideEffect.} =
   of Text: result = a.text == b.text
   of Symbol: result = a.symbol == b.symbol
   of Assignment:
-    if cast[pointer](a.assignment.items) == cast[pointer](b.assignment.items):
+    if system.`==`(a.assignment.items, b.assignment.items):
       return true
     if a.assignment.items.isNil:
       return false
