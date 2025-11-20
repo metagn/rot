@@ -8,6 +8,7 @@ type
   RotOptions* = object
     colon*: SpecialCharacterStrategy
     bracket*: SpecialCharacterStrategy
+    comment*: SpecialCharacterStrategy
   RotParser* = object
     options*: RotOptions
     done*: bool
@@ -85,14 +86,32 @@ proc nextChar*(parser: var RotParser): bool =
   parser.vein.setFreeBefore(parser.previousPos)
   result = true
 
-iterator chars*(parser: var RotParser): char =
+iterator rawChars*(parser: var RotParser): char =
   while parser.nextChar():
     yield parser.current
 
 proc error*(parser: var RotParser, msg: string) =
   raiseAssert(msg)
 
-const DefaultSymbolDisallowedChars = {',', ';', ':', '=', '{', '}', '(', ')', '[', ']'} + Whitespace
+iterator charsHandleComments*(parser: var RotParser): char =
+  var comment = false
+  for ch in parser.rawChars:
+    case ch
+    of '#':
+      case parser.options.comment
+      of DisableFeature:
+        parser.error("comments disabled")
+      of EnableFeature:
+        comment = true
+      of TreatAsSymbol:
+        discard
+    of Newlines:
+      comment = false
+    else: discard
+    if not comment:
+      yield ch
+
+const DefaultSymbolDisallowedChars = {',', ';', ':', '=', '{', '}', '(', ')', '[', ']', '#'} + Whitespace
 
 proc symbolDisallowedChars*(parser: var RotParser): set[char] =
   result = DefaultSymbolDisallowedChars
@@ -100,11 +119,13 @@ proc symbolDisallowedChars*(parser: var RotParser): set[char] =
     result.excl(':')
   if parser.options.bracket == TreatAsSymbol:
     result.excl({'[', ']'})
+  if parser.options.comment == TreatAsSymbol:
+    result.excl('#')
 
 proc parseSymbol*(parser: var RotParser): string =
   result = ""
   let disallowedChars = parser.symbolDisallowedChars
-  for ch in parser.chars:
+  for ch in parser.rawChars:
     if ch in disallowedChars:
       parser.resetPos()
       return
@@ -113,7 +134,7 @@ proc parseSymbol*(parser: var RotParser): string =
 
 proc parseQuoted*(parser: var RotParser, quote: char): string =
   result = ""
-  for ch in parser.chars:
+  for ch in parser.rawChars:
     if ch == quote:
       if parser.peekCharOrZero() == quote:
         let gotNext = parser.nextChar()
@@ -131,7 +152,7 @@ proc parseColonString*(parser: var RotParser): string =
   var newline = false
   var finalIndent = startIndent
   # start:
-  for ch in parser.chars:
+  for ch in parser.rawChars: # no comments
     case ch
     of Whitespace - Newlines:
       discard
@@ -142,22 +163,28 @@ proc parseColonString*(parser: var RotParser): string =
       parser.resetPos()
       break
   if newline:
+    if finalIndent <= startIndent:
+      return
     var currentLine = ""
-    template addInLine(c: char) =
+    var newlineQueue = ""
+    template addPrecedingNewlines() =
       if newlineQueue.len != 0:
         result.add(newlineQueue)
         newlineQueue = ""
+    template addInLine(c: char) =
+      addPrecedingNewlines()
       currentLine.add(ch)
-    var newlineQueue = ""
     var recordIndent = false
     var indent = finalIndent
-    for ch in parser.chars:
+    for ch in parser.rawChars: # no comments
       case ch
       of Whitespace - Newlines:
         if indent >= finalIndent:
           addInLine(ch)
         if recordIndent:
           inc indent
+          if indent == finalIndent:
+            addPrecedingNewlines()
       of Newlines:
         result.add(currentLine)
         currentLine = ""
@@ -173,7 +200,7 @@ proc parseColonString*(parser: var RotParser): string =
         recordIndent = false
     result.add(currentLine)
   else:
-    for ch in parser.chars:
+    for ch in parser.rawChars:
       case ch
       of Newlines:
         parser.resetPos() # don't consume newline
@@ -189,7 +216,7 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
   var newline = false
   var finalIndent = startIndent
   # start:
-  for ch in parser.chars:
+  for ch in parser.charsHandleComments:
     case ch
     of Whitespace - Newlines: discard
     of Newlines:
@@ -201,7 +228,7 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
   if newline:
     if finalIndent <= startIndent:
       return
-    for ch in parser.chars:
+    for ch in parser.charsHandleComments:
       case ch
       of Whitespace - Newlines:
         discard
@@ -220,7 +247,7 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
           let p = parsePhrase(parser, newlineSensitive = true)
           result.items.add p
   else:
-    for ch in parser.chars:
+    for ch in parser.charsHandleComments:
       case ch
       of Newlines:
         parser.resetPos() # don't consume newline
@@ -236,13 +263,13 @@ proc parseTerm*(parser: var RotParser, start: char): Rot
 
 proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool): Rot =
   result = parseTerm(parser, start)
-  for ch in parser.chars:
+  for ch in parser.charsHandleComments:
     case ch
     of Whitespace - Newlines:
       # could also make removing newlines conditional on newlineSensitive
       discard
     of '=':
-      for ch2 in parser.chars:
+      for ch2 in parser.charsHandleComments:
         if ch2 notin Whitespace:
           break
       if parser.done:
@@ -260,7 +287,7 @@ proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool
 proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
   result = RotPhrase(items: @[])
   var currentlyNewlineSensitive = newlineSensitive
-  for ch in parser.chars:
+  for ch in parser.charsHandleComments:
     case ch
     of ',':
       currentlyNewlineSensitive = false
@@ -281,6 +308,7 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
       if parser.options.bracket == TreatAsSymbol:
         let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
         result.items.add item
+        currentlyNewlineSensitive = newlineSensitive
       else:
         # other context
         parser.resetPos()
@@ -324,16 +352,18 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
       of TreatAsSymbol:
         let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
         result.items.add item
+        currentlyNewlineSensitive = newlineSensitive
     else:
       let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
       result.items.add item
+      currentlyNewlineSensitive = newlineSensitive
   if result.items.len == 0:
     parser.error("phrase cannot be empty")
     # should not happen in block, only () case
 
 proc parseBlock*(parser: var RotParser): RotBlock =
   result = RotBlock(items: @[])
-  for ch in parser.chars:
+  for ch in parser.charsHandleComments:
     case ch
     of ')', '}':
       # other context
@@ -411,7 +441,7 @@ proc parseFullBlock*(parser: var RotParser): RotBlock =
   if not parser.done:
     parser.error("block finished before input: " & $parser.current)
 
-proc nextPhrase*(parser: var RotParser; phrase: var RotPhrase): bool =
+proc nextPhraseStart*(parser: var RotParser): bool =
   if parser.done:
     return false
   if parser.current in Whitespace + {';'}:
@@ -419,5 +449,35 @@ proc nextPhrase*(parser: var RotParser; phrase: var RotPhrase): bool =
       if not parser.nextChar():
         return false
     parser.resetPos()
-  phrase = parsePhrase(parser, newlineSensitive = true)
+  result = true
+
+proc nextPhrase*(parser: var RotParser; phrase: var RotPhrase, newlineSensitive = true): bool =
+  if not nextPhraseStart(parser):
+    return false
+  phrase = parsePhrase(parser, newlineSensitive = newlineSensitive)
+  result = true
+
+proc nextPhraseItemStart*(parser: var RotParser, newlineSensitive: var bool): bool =
+  if parser.done:
+    return false
+  if parser.current in Whitespace + {','}:
+    while parser.current in Whitespace + {','}:
+      case parser.current
+      of ',':
+        newlineSensitive = true
+      of Newlines:
+        if newlineSensitive:
+          parser.resetPos()
+          return false
+      else: discard
+      if not parser.nextChar():
+        return false
+    parser.resetPos()
+  result = true
+
+proc nextPhraseItem*(parser: var RotParser; item: var Rot; newlineSensitive = true): bool =
+  var newlineSensitive = newlineSensitive
+  if not nextPhraseItemStart(parser, newlineSensitive):
+    return false
+  item = parsePhraseItem(parser, parser.current, newlineSensitive)
   result = true

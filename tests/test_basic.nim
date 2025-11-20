@@ -188,6 +188,12 @@ wxy ::=
             p(s"klm", s"nop", b()))))),
         p(s"qrs", s"tuv"))),
       p(a(s"wxy", b(p(s"zab", s"cde", b()))))),
+    """
+a:
+  b c
+  
+# whitespace up to indentation level above
+""": b(p(s"a", t("b c\n"))),
   }
 
   match tests
@@ -200,3 +206,172 @@ test "bracket syntax":
       p(s"789"),
       p(a(s"abc", t"def")),
       p(s"ghi")))))
+
+test "comments":
+  let tests = {
+    """abc # def
+ghi :: # jkl
+    # mnop
+  qrs tuv # wxy
+# zab
+  cde fgh
+    # ijk
+lmn # op
+still: in # strings
+"in # strings"
+`in # strings`
+""": b(
+      p(s"abc"),
+      p(s"ghi", b(
+        p(s"qrs", s"tuv"),
+        p(s"cde", s"fgh"))),
+      p(s"lmn"),
+      p(s"still", t"in # strings"),
+      p(t"in # strings"),
+      p(s"in # strings"))
+  }
+  match tests
+
+test "spec":
+  let tests = {
+    # strings:
+    """
+"abc"
+"abc def"
+"abc def
+ghi jkl" # => abc def<newline>ghi jkl
+"abc "" def" # => abc " def
+""" & "\n\"\"\"abc def\"\"\" # => \"abc def\"": b(
+      p(t"abc"),
+      p(t"abc def"),
+      p(t("abc def\nghi jkl")),
+      p(t"abc "" def"),
+      p(t("\"abc def\""))),
+    # symbols:
+    """
+abc
+abc123
+123abc
+123
+123.456
+`abc def`
+`abc `` def
+ghi jkl`
+""": b(
+      p(s"abc"),
+      p(s"abc123"),
+      p(s"123abc"),
+      p(s"123"),
+      p(s"123.456"),
+      p(s"abc def"),
+      p(s("abc ` def\nghi jkl"))),
+    # phrases:
+    """
+abc "def ghi" jkl
+abc, "def ghi", jkl
+abc "def ghi",jkl
+abc,"def ghi" jkl
+abc,
+"def ghi",
+
+jkl
+a, (b, "c d",
+  e), f""": b(
+      p(s"abc", t"def ghi", s"jkl"),
+      p(s"abc", t"def ghi", s"jkl"),
+      p(s"abc", t"def ghi", s"jkl"),
+      p(s"abc", t"def ghi", s"jkl"),
+      p(s"abc", t"def ghi", s"jkl"),
+      p(s"a", p(s"b", t"c d", s"e"), s"f")),
+    # assignments:
+    """
+abc = "def", ghi = (jkl, mnop)
+""": b(p(a(s"abc", t"def"), a(s"ghi", p(s"jkl", s"mnop")))),
+    # blocks:
+"""
+abc "def" # phrase (abc, "def")
+ghi = "jkl" # phrase (ghi = "jkl")
+"mnop" # phrase ("mnop")
+abc "def" {
+  ghi = {"jkl"; "mnop"}
+  "qrs tuv"
+}
+""": b(
+      p(s"abc", t"def"),
+      p(a(s"ghi", t"jkl")),
+      p(t"mnop"),
+      p(s"abc", t"def", b(
+        p(a(s"ghi", b(p(t"jkl"), p(t"mnop")))),
+        p(t"qrs tuv")
+      )))
+  }
+  match tests
+
+test "spec additional syntax":
+  let tests = {
+    # comments
+    """
+# comment
+abc = "def" # comment
+"this is # not a comment"
+""": b(p(a(s"abc", t"def")), p(t"this is # not a comment")),
+    """
+abc: def ghi
+abc:
+  def ghi
+    jkl mno
+
+      pqr stu
+    
+  vwx
+
+"break indent"
+
+  abc:
+def:
+   ghi:
+  jkl:
+
+abc ::
+  def ghi ::
+    jkl mno ::
+
+      pqr stu ::
+    
+  vwx
+
+a :=
+  b c
+  d
+
+a ::=
+  b c
+  d
+""": b(
+      p(s"abc", t"def ghi"),
+      p(s"abc", t"""def ghi
+  jkl mno
+
+    pqr stu
+  
+vwx"""),
+      p(t"break indent"),
+      p(s"abc", t""),
+      p(s"def", t"ghi:"),
+      p(s"jkl", t""),
+      p(s"abc", b(
+        p(s"def", s"ghi", b(
+          p(s"jkl", s"mno", b(
+            p(s"pqr", s"stu", b())
+          ))
+        )),
+        p(s"vwx")
+      )),
+      p(a(s"a", t("b c\nd"))),
+      p(a(s"a", b(p(s"b", s"c"), p(s"d"))))
+    ),
+    # brackets:
+    """abc = [def, "ghi jkl" mnop
+, (nested "phrase")]""": b(p(a(s"abc", b(p(s"def"), p(t"ghi jkl"), p(s"mnop"), p(p(s"nested", t"phrase")))))),
+  }
+  match tests
