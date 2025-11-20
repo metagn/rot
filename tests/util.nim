@@ -61,3 +61,13 @@ proc `$`*(a: Rot): string =
         if j != 0: result.add ", "
         result.add $b
     result.add "}"
+
+template match*(s: string, b: Rot) =
+  checkpoint s
+  let parsed = parseRot(s)
+  let a = Rot(kind: Block, `block`: parsed)
+  check a == b
+
+template match*(arr: openarray[(string, Rot)]) =
+  for (s, b) in arr.items:
+    match s, b

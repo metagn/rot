@@ -1,20 +1,32 @@
 import ./representation, std/strutils, hemodyne/syncvein
 
-type RotParser* = object
-  done*: bool
-  vein*: Vein
-  pos, previousPos: int
-  line*, column*: int
-  previousCol: int
-  current: char
-  recordLineIndent: bool
-  currentLineIndent: int
+type
+  SpecialCharacterStrategy* = enum
+    EnableFeature,
+    DisableFeature,
+    TreatAsSymbol
+  RotOptions* = object
+    colon*: SpecialCharacterStrategy
+    bracket*: SpecialCharacterStrategy
+  RotParser* = object
+    options*: RotOptions
+    done*: bool
+    vein*: Vein
+    pos, previousPos: int
+    line*, column*: int
+    previousCol: int
+    current: char
+    recordLineIndent: bool
+    currentLineIndent: int
 
-proc initRotParser*(str: sink string = ""): RotParser =
-  result = RotParser(vein: initVein(str))
+proc defaultRotOptions*(): RotOptions =
+  result = RotOptions(colon: EnableFeature, bracket: EnableFeature)
 
-proc initRotParser*(loader: proc(): string): RotParser =
-  result = RotParser(vein: initVein(loader))
+proc initRotParser*(str: sink string = "", options = defaultRotOptions()): RotParser =
+  result = RotParser(vein: initVein(str), options: options)
+
+proc initRotParser*(loader: proc(): string, options = defaultRotOptions()): RotParser =
+  result = RotParser(vein: initVein(loader), options: options)
 
 proc extendBufferOne(parser: var RotParser) =
   let remove = parser.vein.extendBufferOne()
@@ -80,13 +92,20 @@ iterator chars*(parser: var RotParser): char =
 proc error*(parser: var RotParser, msg: string) =
   raiseAssert(msg)
 
-const SymbolDisallowedChars = {',', ';', ':', '=', '{', '}', '(', ')'} + Whitespace
+const DefaultSymbolDisallowedChars = {',', ';', ':', '=', '{', '}', '(', ')', '[', ']'} + Whitespace
+
+proc symbolDisallowedChars*(parser: var RotParser): set[char] =
+  result = DefaultSymbolDisallowedChars
+  if parser.options.colon == TreatAsSymbol:
+    result.excl(':')
+  if parser.options.bracket == TreatAsSymbol:
+    result.excl({'[', ']'})
 
 proc parseSymbol*(parser: var RotParser): string =
   result = ""
+  let disallowedChars = parser.symbolDisallowedChars
   for ch in parser.chars:
-    case ch
-    of SymbolDisallowedChars:
+    if ch in disallowedChars:
       parser.resetPos()
       return
     else:
@@ -258,38 +277,53 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
       # other context
       parser.resetPos()
       return
+    of ']':
+      if parser.options.bracket == TreatAsSymbol:
+        let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
+        result.items.add item
+      else:
+        # other context
+        parser.resetPos()
+        return
     of ':':
-      if not newlineSensitive:
-        parser.error("colon syntax not allowed outside of block context")
-      let colonBlock = parser.peekCharOrZero() == ':'
-      if colonBlock:
-        let gotNext = parser.nextChar()
-        assert gotNext
-      let assign = parser.peekCharOrZero() == '='
-      if assign:
-        if result.items.len != 1:
-          parser.error("expected single lhs for colon assignment")
-        let gotNext = parser.nextChar()
-        assert gotNext
-      var rhs: Rot
-      if colonBlock:
-        let b = parseColonBlock(parser)
-        rhs = Rot(kind: Block, `block`: b)
-      else:
-        let s = parseColonString(parser)
-        rhs = Rot(kind: Text, text: s)
-      if assign:
-        let lhs =
-          if result.items.len == 1: result.items[0]
-          else: Rot(kind: Phrase, phrase: result)
-        var asgn = RotAssignment()
-        new(asgn.items)
-        asgn.items.left = lhs
-        asgn.items.right = rhs
-        result = RotPhrase(items: @[Rot(kind: Assignment, assignment: asgn)])
-      else:
-        result.items.add(rhs)
-      return
+      case parser.options.colon
+      of DisableFeature:
+        parser.error("colon syntax disabled")
+      of EnableFeature:
+        if not newlineSensitive:
+          parser.error("colon syntax not allowed outside of block context")
+        let colonBlock = parser.peekCharOrZero() == ':'
+        if colonBlock:
+          let gotNext = parser.nextChar()
+          assert gotNext
+        let assign = parser.peekCharOrZero() == '='
+        if assign:
+          if result.items.len != 1:
+            parser.error("expected single lhs for colon assignment")
+          let gotNext = parser.nextChar()
+          assert gotNext
+        var rhs: Rot
+        if colonBlock:
+          let b = parseColonBlock(parser)
+          rhs = Rot(kind: Block, `block`: b)
+        else:
+          let s = parseColonString(parser)
+          rhs = Rot(kind: Text, text: s)
+        if assign:
+          let lhs =
+            if result.items.len == 1: result.items[0]
+            else: Rot(kind: Phrase, phrase: result)
+          var asgn = RotAssignment()
+          new(asgn.items)
+          asgn.items.left = lhs
+          asgn.items.right = rhs
+          result = RotPhrase(items: @[Rot(kind: Assignment, assignment: asgn)])
+        else:
+          result.items.add(rhs)
+        return
+      of TreatAsSymbol:
+        let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
+        result.items.add item
     else:
       let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
       result.items.add item
@@ -344,9 +378,28 @@ proc parseTerm*(parser: var RotParser, start: char): Rot =
     else:
       parser.error("expected } for enclosed block")
     result = Rot(kind: Block, `block`: b)
-  #of '[': XXX decide if to implement, maybe not a bad idea
+  of '[':
+    case parser.options.bracket
+    of DisableFeature:
+      parser.error("bracket syntax disabled")
+    of EnableFeature:
+      let p = parsePhrase(parser, newlineSensitive = false)
+      let gotNext = parser.nextChar()
+      if gotNext and parser.current == ']':
+        discard
+      else:
+        parser.error("expected ] for enclosed block")
+      var b = RotBlock()
+      newSeq(b.items, p.items.len)
+      for i in 0 ..< p.items.len:
+        b.items[i] = RotPhrase(items: @[p.items[i]])
+      result = Rot(kind: Block, `block`: b)
+    of TreatAsSymbol:
+      parser.resetPos()
+      let s = parseSymbol(parser)
+      result = Rot(kind: Symbol, symbol: s)
   else:
-    if start in SymbolDisallowedChars:
+    if start in parser.symbolDisallowedChars:
       parser.error("expected phrase term, got " & $start)
     else:
       parser.resetPos()
