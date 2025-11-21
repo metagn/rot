@@ -275,11 +275,11 @@ proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool
       if parser.done:
         parser.error("expected phrase term, got end of file")
       let right = parseTerm(parser, parser.current)
-      var assignment = RotAssignment()
-      new(assignment.items)
-      assignment.items.left = result
-      assignment.items.right = right
-      result = Rot(kind: Assignment, assignment: assignment)
+      var association = RotAssociation()
+      new(association.items)
+      association.items.left = result
+      association.items.right = right
+      result = Rot(kind: Association, association: association)
     else:
       parser.resetPos()
       return
@@ -324,10 +324,10 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
         if colonBlock:
           let gotNext = parser.nextChar()
           assert gotNext
-        let assign = parser.peekCharOrZero() == '='
-        if assign:
+        let associate = parser.peekCharOrZero() == '='
+        if associate:
           if result.items.len != 1:
-            parser.error("expected single lhs for colon assignment")
+            parser.error("expected single lhs for colon association")
           let gotNext = parser.nextChar()
           assert gotNext
         var rhs: Rot
@@ -337,15 +337,15 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
         else:
           let s = parseColonString(parser)
           rhs = Rot(kind: Text, text: s)
-        if assign:
+        if associate:
           let lhs =
             if result.items.len == 1: result.items[0]
             else: Rot(kind: Phrase, phrase: result)
-          var asgn = RotAssignment()
-          new(asgn.items)
-          asgn.items.left = lhs
-          asgn.items.right = rhs
-          result = RotPhrase(items: @[Rot(kind: Assignment, assignment: asgn)])
+          var assoc = RotAssociation()
+          new(assoc.items)
+          assoc.items.left = lhs
+          assoc.items.right = rhs
+          result = RotPhrase(items: @[Rot(kind: Association, association: assoc)])
         else:
           result.items.add(rhs)
         return

@@ -111,9 +111,9 @@ a, (b, "c d",
 
 Author note 3: The reason it cannot be empty is that there is no good syntax for an empty phrase inside a block. Otherwise `()` being an empty phrase is fine, but it would be bad for it to "fold" into an empty phrase inside a block, rather than just be a phrase containing an empty phrase. Maybe `()` can be a special syntax for a "unit" type instead.
 
-### Assignment
+### Association
 
-An assignment is the pairing of a phrase term with another using the `=` character in between.
+An association is the pairing of a phrase term with another using the `=` character in between.
 
 ```
 abc = "def", ghi = (jkl, mnop)
@@ -121,7 +121,7 @@ abc = "def", ghi = (jkl, mnop)
 
 Similar to commas, newlines after the `=` character are treated as inline whitespace.
 
-An assignment can only be the item of a phrase. They cannot be nested inside other assignments.
+An association can only be the item of a phrase. They cannot be nested inside other associations.
 
 Author note: I don't have a good rationalization for this syntax. I would think it is a natively supported shorthand for `= abc "def"` but I guess that would be too general to deal with. I am fine with only having one infix operator though, and one that doesn't have a left/right precedence.
 
@@ -228,7 +228,7 @@ abc {
 }
 ```
 
-An `=` character following the colons (i.e. `:=`, `::=`) will create an assignment rather than adding the string/block to the phrase. This requires that the phrase has exactly 1 term before the colon.
+An `=` character following the colons (i.e. `:=`, `::=`) will create an association rather than adding the string/block to the phrase. This requires that the phrase has exactly 1 term before the colon.
 
 ```
 a :=

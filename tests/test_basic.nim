@@ -283,7 +283,7 @@ a, (b, "c d",
       p(s"abc", t"def ghi", s"jkl"),
       p(s"abc", t"def ghi", s"jkl"),
       p(s"a", p(s"b", t"c d", s"e"), s"f")),
-    # assignments:
+    # associations:
     """
 abc = "def", ghi = (jkl, mnop)
 """: b(p(a(s"abc", t"def"), a(s"ghi", p(s"jkl", s"mnop")))),

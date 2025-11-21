@@ -4,10 +4,10 @@ proc t*(s: string): Rot = Rot(kind: Text, text: s)
 proc s*(s: string): Rot = Rot(kind: Symbol, symbol: s)
 
 proc a*(a, b: Rot): Rot =
-  result = Rot(kind: Assignment, assignment: RotAssignment())
-  new(result.assignment.items)
-  result.assignment.items.left = a
-  result.assignment.items.right = b
+  result = Rot(kind: Association, association: RotAssociation())
+  new(result.association.items)
+  result.association.items.left = a
+  result.association.items.right = b
 
 proc p*(args: varargs[Rot]): Rot =
   result = Rot(kind: Phrase, phrase: RotPhrase(items: @[]))
@@ -27,13 +27,13 @@ proc `==`*(a, b: Rot): bool {.noSideEffect.} =
   case a.kind
   of Text: result = a.text == b.text
   of Symbol: result = a.symbol == b.symbol
-  of Assignment:
-    if system.`==`(a.assignment.items, b.assignment.items):
+  of Association:
+    if system.`==`(a.association.items, b.association.items):
       return true
-    if a.assignment.items.isNil:
+    if a.association.items.isNil:
       return false
-    result = a.assignment.items.left == b.assignment.items.left and
-      a.assignment.items.right == b.assignment.items.right
+    result = a.association.items.left == b.association.items.left and
+      a.association.items.right == b.association.items.right
   of Phrase:
     result = a.phrase.items == b.phrase.items
   of Block:
@@ -45,8 +45,8 @@ proc `$`*(a: Rot): string =
   of Text:
     result = ""
     result.addQuoted(a.text)
-  of Assignment:
-    result = $a.assignment.items.left & " = " & $a.assignment.items.right
+  of Association:
+    result = $a.association.items.left & " = " & $a.association.items.right
   of Phrase:
     result = "("
     for i, a in a.phrase.items:
