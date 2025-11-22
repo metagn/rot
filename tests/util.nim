@@ -25,6 +25,7 @@ proc b*(args: varargs[Rot]): Rot =
 proc `==`*(a, b: Rot): bool {.noSideEffect.} =
   if a.kind != b.kind: return false
   case a.kind
+  of Unit: result = true
   of Text: result = a.text == b.text
   of Symbol: result = a.symbol == b.symbol
   of Association:
@@ -41,6 +42,7 @@ proc `==`*(a, b: Rot): bool {.noSideEffect.} =
 
 proc `$`*(a: Rot): string =
   case a.kind
+  of Unit: result = "()"
   of Symbol: result = a.symbol
   of Text:
     result = ""

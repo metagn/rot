@@ -266,6 +266,7 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
         else:
           parser.resetPos()
           let p = parsePhrase(parser, newlineSensitive = true)
+          assert p.items.len != 0
           result.items.add p
   else:
     for ch in parser.charsHandleComments:
@@ -278,6 +279,7 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
       else:
         parser.resetPos()
         let p = parsePhrase(parser, newlineSensitive = true)
+        assert p.items.len != 0
         result.items.add p
 
 proc parseTerm*(parser: var RotParser, start: char): Rot
@@ -389,9 +391,6 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
         parseItem()
     else:
       parseItem()
-  if result.items.len == 0:
-    parser.error("phrase cannot be empty")
-    # should not happen in block, only () case
 
 proc parseBlock*(parser: var RotParser): RotBlock =
   result = RotBlock(items: @[])
@@ -405,17 +404,20 @@ proc parseBlock*(parser: var RotParser): RotBlock =
       if parser.options.inlineSpace == TreatAsSymbolStart:
         parser.resetPos()
         let phrase = parsePhrase(parser, newlineSensitive = true)
+        assert phrase.items.len != 0
         result.items.add phrase
     of Newlines:
       if parser.options.newline == TreatAsSymbolStart:
         parser.resetPos()
         let phrase = parsePhrase(parser, newlineSensitive = true)
+        assert phrase.items.len != 0
         result.items.add phrase
     of ';':
       discard
     else:
       parser.resetPos()
       let phrase = parsePhrase(parser, newlineSensitive = true)
+      assert phrase.items.len != 0
       result.items.add phrase
 
 proc parseTerm*(parser: var RotParser, start: char): Rot =
@@ -439,7 +441,10 @@ proc parseTerm*(parser: var RotParser, start: char): Rot =
       discard
     else:
       parser.error("expected ) for enclosed phrase")
-    result = Rot(kind: Phrase, phrase: p)
+    if p.items.len == 0:
+      result = Rot(kind: Unit)
+    else:
+      result = Rot(kind: Phrase, phrase: p)
   of '{':
     let b = parseBlock(parser)
     let gotNext = parser.nextChar()

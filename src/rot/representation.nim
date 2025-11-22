@@ -1,8 +1,9 @@
 type
   RotKind* = enum
-    Text, Symbol, Association, Phrase, Block
+    Unit, Text, Symbol, Association, Phrase, Block
   Rot* = object
     case kind*: RotKind
+    of Unit: discard
     of Text: text*: string
     of Symbol: symbol*: string
     of Association: association*: RotAssociation

@@ -5,7 +5,7 @@ Yet another plaintext data format, inspired by CSV, YAML, and Groovy/Kotlin DSLs
 So there are no surprises, the biggest caveats right away are:
 
 * No numbers or booleans, as in, they are not distinguished from strings. But they should not be horrible to deal with.
-* No escape sequences. Characters are treated literally including newlines, and unicode characters are not specially handled. The idea is that these can be done optionally with a (streaming) preprocessor.
+* No escape sequences. Characters are treated literally including newlines, and unicode characters are not specially handled. The idea is that these can be done optionally with a (streaming) preprocessor. Maybe it can be a parser option but it should not be part of the base format.
 * Inline whitespace is a delimiter and unquoted strings do not allow whitespace by default.
 * Other unusual syntax.
 
@@ -78,9 +78,9 @@ Allowed characters are (for now): Every character that is not used in the data f
 Author note: I was not sure if these should be different from strings at first (even before the backtick quotes), but it seems more useful to me that something differentiated by syntax also represents something else semantically, after which it can also be extended to make full use of the distinction ("no whitespaces" is not a particularly useful distinction for data). In the end it is allowed to treat them as the same anyway.
 One way to make sense of the distinction might be that normal strings represent arbitrary text, while symbols represent a finite or pre-defined set of strings. These can be things like `null`, `true`/`false`, `NaN`, enum symbols, field/variable names, or even integers or real numbers. Distinguishing these from arbitrary text can be annoying, so arbitrary text is relegated to a separate syntax. But there is nothing wrong with using the syntax for arbitrary text for these values either.
 
-### Phrase
+### Phrase (and unit)
 
-A phrase is a "row" of data, i.e. a collection of data values that cannot be empty. (see author note 3) Items of a phrase are delimited by inline whitespace or commas (`,`). (see author note 2)
+A phrase is a "row" of data, i.e. a collection of data values that cannot be empty (see author note 2). Items of a phrase are delimited by inline whitespace or commas (`,`). (see author note 1)
 
 ```
 abc "def ghi" jkl
@@ -108,7 +108,13 @@ a, (b, "c d",
   e), f
 ```
 
-Author note 2: The reason it cannot be empty is that there is no good syntax for an empty phrase inside a block. Otherwise `()` being an empty phrase is fine, but it would be bad for it to "fold" into an empty phrase inside a block, rather than just be a phrase containing an empty phrase. Maybe `()` can be a special syntax for a "unit" type instead.
+If there are no terms wrapped inside parentheses, then it is treated as a separate "unit" data type.
+
+```
+() # unit
+```
+
+Author note 2: The reason phrases cannot be empty is that there is no good syntax for an empty phrase inside a block. Otherwise `()` being an empty phrase is fine, but it would be bad for it to "fold" into an empty phrase inside a block, rather than just be a phrase containing an empty phrase. So `()` is treated as a special syntax for a "unit" type instead.
 
 ### Association
 
