@@ -4,11 +4,17 @@ type
   SpecialCharacterStrategy* = enum
     EnableFeature,
     DisableFeature,
-    TreatAsSymbol
+    TreatAsSymbol # implies disabled
+  DelimiterStrategy* = enum
+    EnableDelimiter,
+    DisableDelimiter,
+    ConcatenateSymbol, # implies disabled
+    TreatAsSymbolStart # implies disabled
   RotOptions* = object
     colon*: SpecialCharacterStrategy
     bracket*: SpecialCharacterStrategy
     comment*: SpecialCharacterStrategy
+    inlineSpace*, newline*: DelimiterStrategy
   RotParser* = object
     options*: RotOptions
     done*: bool
@@ -121,15 +127,30 @@ proc symbolDisallowedChars*(parser: var RotParser): set[char] =
     result.excl({'[', ']'})
   if parser.options.comment == TreatAsSymbol:
     result.excl('#')
+  if parser.options.inlineSpace == TreatAsSymbolStart:
+    result.excl(Whitespace - Newlines)
+  if parser.options.newline == TreatAsSymbolStart:
+    result.excl(Newlines)
 
 proc parseSymbol*(parser: var RotParser): string =
   result = ""
   let disallowedChars = parser.symbolDisallowedChars
+  var concatChars: set[char] = {}
+  if parser.options.inlineSpace == ConcatenateSymbol:
+    concatChars.incl(Whitespace - Newlines)
+  if parser.options.newline == ConcatenateSymbol:
+    concatChars.incl(Newlines)
+  var concat = ""
   for ch in parser.rawChars:
     if ch in disallowedChars:
       parser.resetPos()
       return
+    elif ch in concatChars:
+      concat.add ch
     else:
+      if concat.len != 0:
+        result.add concat
+        concat = ""
       result.add ch
 
 proc parseQuoted*(parser: var RotParser, quote: char): string =
@@ -287,28 +308,43 @@ proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool
 proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
   result = RotPhrase(items: @[])
   var currentlyNewlineSensitive = newlineSensitive
+  var expectingItem = true
+  template parseItem() =
+    if not expectingItem:
+      parser.error("expected comma delimiter between phrase terms")
+    let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
+    result.items.add item
+    currentlyNewlineSensitive = newlineSensitive
+    if parser.options.inlineSpace != EnableDelimiter:
+      # no character also counts as inline space delimiter
+      expectingItem = false
   for ch in parser.charsHandleComments:
     case ch
     of ',':
       currentlyNewlineSensitive = false
+      expectingItem = true
     of ';':
-      #parser.resetPos() # maybe don't consume semicolon?
+      parser.resetPos() # don't consume semicolon
       return
     of Whitespace - Newlines:
-      discard
+      if parser.options.inlineSpace == TreatAsSymbolStart:
+        parseItem()
     of Newlines:
-      if currentlyNewlineSensitive:
-        parser.resetPos() # don't consume newline
-        return
+      case parser.options.newline
+      of TreatAsSymbolStart:
+        parseItem()
+      of EnableDelimiter:
+        if currentlyNewlineSensitive:
+          parser.resetPos() # don't consume newline
+          return
+      else: discard
     of ')', '}':
       # other context
       parser.resetPos()
       return
     of ']':
       if parser.options.bracket == TreatAsSymbol:
-        let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
-        result.items.add item
-        currentlyNewlineSensitive = newlineSensitive
+        parseItem()
       else:
         # other context
         parser.resetPos()
@@ -318,7 +354,7 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
       of DisableFeature:
         parser.error("colon syntax disabled")
       of EnableFeature:
-        if not newlineSensitive:
+        if not newlineSensitive: # and parser.options.newline == EnableDelimiter
           parser.error("colon syntax not allowed outside of block context")
         let colonBlock = parser.peekCharOrZero() == ':'
         if colonBlock:
@@ -350,13 +386,9 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
           result.items.add(rhs)
         return
       of TreatAsSymbol:
-        let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
-        result.items.add item
-        currentlyNewlineSensitive = newlineSensitive
+        parseItem()
     else:
-      let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
-      result.items.add item
-      currentlyNewlineSensitive = newlineSensitive
+      parseItem()
   if result.items.len == 0:
     parser.error("phrase cannot be empty")
     # should not happen in block, only () case
@@ -369,8 +401,16 @@ proc parseBlock*(parser: var RotParser): RotBlock =
       # other context
       parser.resetPos()
       return
-    of Whitespace:
-      discard
+    of Whitespace - Newlines:
+      if parser.options.inlineSpace == TreatAsSymbolStart:
+        parser.resetPos()
+        let phrase = parsePhrase(parser, newlineSensitive = true)
+        result.items.add phrase
+    of Newlines:
+      if parser.options.newline == TreatAsSymbolStart:
+        parser.resetPos()
+        let phrase = parsePhrase(parser, newlineSensitive = true)
+        result.items.add phrase
     of ';':
       discard
     else:
@@ -444,8 +484,13 @@ proc parseFullBlock*(parser: var RotParser): RotBlock =
 proc nextPhraseStart*(parser: var RotParser): bool =
   if parser.done:
     return false
-  if parser.current in Whitespace + {';'}:
-    while parser.current in Whitespace + {';'}:
+  var blockIgnored = Whitespace + {';'}
+  if parser.options.inlineSpace == TreatAsSymbolStart:
+    blockIgnored.excl(Whitespace - Newlines)
+  if parser.options.newline == TreatAsSymbolStart:
+    blockIgnored.excl(Newlines)
+  if parser.current in blockIgnored:
+    while parser.current in blockIgnored:
       if not parser.nextChar():
         return false
     parser.resetPos()
@@ -460,8 +505,13 @@ proc nextPhrase*(parser: var RotParser; phrase: var RotPhrase, newlineSensitive 
 proc nextPhraseItemStart*(parser: var RotParser, newlineSensitive: var bool): bool =
   if parser.done:
     return false
-  if parser.current in Whitespace + {','}:
-    while parser.current in Whitespace + {','}:
+  var phraseIgnored = Whitespace + {','}
+  if parser.options.inlineSpace == TreatAsSymbolStart:
+    phraseIgnored.excl(Whitespace - Newlines)
+  if parser.options.newline == TreatAsSymbolStart:
+    phraseIgnored.excl(Newlines)
+  if parser.current in phraseIgnored:
+    while parser.current in phraseIgnored:
       case parser.current
       of ',':
         newlineSensitive = true

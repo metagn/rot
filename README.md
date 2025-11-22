@@ -6,7 +6,7 @@ So there are no surprises, the biggest caveats right away are:
 
 * No numbers or booleans, as in, they are not distinguished from strings. But they should not be horrible to deal with.
 * No escape sequences. Characters are treated literally including newlines, and unicode characters are not specially handled. The idea is that these can be done optionally with a (streaming) preprocessor.
-* Quotes are needed for text with spaces. (this might become an option, but not exactly as expected)
+* Inline whitespace is a delimiter and unquoted strings do not allow whitespace by default.
 * Other unusual syntax.
 
 Some reasoning for these exists below.
@@ -73,14 +73,14 @@ Can also be surrounded by backticks to allow all characters. Again, repeating ba
 ghi jkl`
 ```
 
-Allowed characters are (for now): Every character that is not used in the data format, except quote characters, and optionally the additional features that can be disabled (whether or not the character is usable is separately configurable). Right now these are the following characters: `,;={}()` and whitespace (default), `:[]#` (from optional features). 
+Allowed characters are (for now): Every character that is not used in the data format, except quote characters, and optionally the additional features that can be disabled (whether or not the character is usable is separately configurable). Right now these are the following characters: `,;={}()` (default), `:[]#` (from optional features), and whitespace (optionally disabled, see section).
 
 Author note: I was not sure if these should be different from strings at first (even before the backtick quotes), but it seems more useful to me that something differentiated by syntax also represents something else semantically, after which it can also be extended to make full use of the distinction ("no whitespaces" is not a particularly useful distinction for data). In the end it is allowed to treat them as the same anyway.
 One way to make sense of the distinction might be that normal strings represent arbitrary text, while symbols represent a finite or pre-defined set of strings. These can be things like `null`, `true`/`false`, `NaN`, enum symbols, field/variable names, or even integers or real numbers. Distinguishing these from arbitrary text can be annoying, so arbitrary text is relegated to a separate syntax. But there is nothing wrong with using the syntax for arbitrary text for these values either.
 
 ### Phrase
 
-A phrase is a "row" of data, i.e. a collection of data values that cannot be empty. (see author note 3) Items of a phrase are delimited by inline whitespace or commas (`,`). (see author note 1)
+A phrase is a "row" of data, i.e. a collection of data values that cannot be empty. (see author note 3) Items of a phrase are delimited by inline whitespace or commas (`,`). (see author note 2)
 
 ```
 abc "def ghi" jkl
@@ -98,9 +98,8 @@ abc,
 jkl
 ```
 
-Author note 1: Whitespace and commas being interchangeable is unintuitive, but it is the most reasonable choice to me by process of elimination. Only using whitespace seems too inflexible and may require a separate "newline escape" character, and commas ideally have some meaning in the language as they pretty clearly delineate information. Only using commas opens up the question of what `abc "def ghi"` by itself means (addendum: I have an answer, see author note 2). Allowing both but only one at a time per phrase/document seems like an arbitrary restriction.
-
-Author note 2: Whitespace delimiting could be made optional, if it is allowed to be part of a symbol. Otherwise it can give an error like "expected comma".
+Author note 1: Whitespace and commas being interchangeable is unintuitive, but it is the most reasonable choice to me by process of elimination. Only using whitespace seems too inflexible and may require a separate "newline escape" character, and commas ideally have some meaning in the language as they pretty clearly delineate information. Only using commas opens up the question of what `abc "def ghi"` by itself means. Allowing both but only one at a time per phrase/document seems like an arbitrary restriction.
+- Addendum: Since this was written, whitespace as delimiters can be optionally disabled in the parser to become part of unquoted strings, see section in additional features.
 
 A phrase can be wrapped in parentheses (`()`) to nest inside other phrases. Using this syntax, newlines also delineate phrase terms like inline whitespace.
 
@@ -109,7 +108,7 @@ a, (b, "c d",
   e), f
 ```
 
-Author note 3: The reason it cannot be empty is that there is no good syntax for an empty phrase inside a block. Otherwise `()` being an empty phrase is fine, but it would be bad for it to "fold" into an empty phrase inside a block, rather than just be a phrase containing an empty phrase. Maybe `()` can be a special syntax for a "unit" type instead.
+Author note 2: The reason it cannot be empty is that there is no good syntax for an empty phrase inside a block. Otherwise `()` being an empty phrase is fine, but it would be bad for it to "fold" into an empty phrase inside a block, rather than just be a phrase containing an empty phrase. Maybe `()` can be a special syntax for a "unit" type instead.
 
 ### Association
 
@@ -146,7 +145,7 @@ abc "def" {
 
 ## Additional syntax (optional)
 
-As of now these are on by default and can be optionally disabled. The special characters used can also be allowed in symbols with a separate option each. 
+As of now in the implementation parser these are on by default and can be optionally disabled. The special characters used can also be allowed in symbols with a separate option each.
 
 ### Comments
 
@@ -258,6 +257,52 @@ abc = [def, "ghi jkl" mnop
 ```
 
 Author note: I am really not sure about this syntax, the syntax being different but representing the same thing as curly brackets would need a better reason than "semicolons are ugly". It could be its own data type like "phrase that can be empty" (provided `()` is disallowed) but then there is no good indented version for it, which clashes IMO with it being an "array". The point of `{}` is not to be a syntax for "records" anyway.
+
+### Disabled whitespace delimiters
+
+Whitespace delimiters such as inline spaces for phrase items, and newlines for phrases in blocks, can be disabled to require the use of the punctuation delimiters instead, `,` and `;` respectively.
+
+```
+a = "b", c = "d";
+e = "f", g = "h"
+i = "j" # errors with expected delimiter
+```
+
+They can also be configured to be part of symbols (unquoted strings) in 2 ways:
+
+1. As concatenating characters: if they are encountered between two symbols, both symbols are joined with the whitespace characters in between and considered a single symbol.
+
+```
+# inline whitespace only:
+abc, def ghi  , jkl   mno
+# same as:
+abc, `def ghi`, `jkl   mno`
+
+# all spaces disabled: 
+  abc def
+ghi   jkl   , name = "def";
+# same as:
+`abc def
+ghi   jkl`, name = "def";
+```
+
+2. As any other character allowed in symbols, treated as the start of a symbol when they are encountered and as part of it after.
+
+```
+# inline whitespace only:
+abc def,   ghi
+  jkl   ;
+# same as:
+`abc def`, `   ghi`;
+` jkl   `;
+
+# all spaces disabled:
+  abc def
+ghi jkl,name="abc";
+# same as:
+` abc def
+ghi jkl`,name="abc"
+```
 
 # Rationale
 
