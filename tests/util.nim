@@ -1,46 +1,43 @@
 import rot
 
-proc t*(s: string): Rot = Rot(kind: Text, text: s)
-proc s*(s: string): Rot = Rot(kind: Symbol, symbol: s)
+proc t*(s: string): RotTerm = RotTerm(kind: Text, text: s)
+proc s*(s: string): RotTerm = RotTerm(kind: Symbol, symbol: s)
 
-proc a*(a, b: Rot): Rot =
-  result = Rot(kind: Association, association: RotAssociation())
-  new(result.association.items)
-  result.association.items.left = a
-  result.association.items.right = b
+proc a*(a, b: RotTerm): RotTerm =
+  result = RotTerm(kind: Association, association: (ref RotAssociation)(left: a, right: b))
 
-proc p*(args: varargs[Rot]): Rot =
-  result = Rot(kind: Phrase, phrase: RotPhrase(items: @[]))
+proc p*(args: varargs[RotTerm]): RotTerm =
+  result = RotTerm(kind: Phrase, phrase: RotPhrase(items: @[]))
   for a in args:
     result.phrase.items.add a
 
-proc b*(args: varargs[Rot]): Rot =
-  result = Rot(kind: Block, `block`: RotBlock(items: @[]))
+proc b*(args: varargs[RotTerm]): RotTerm =
+  result = RotTerm(kind: Block, `block`: RotBlock(items: @[]))
   for a in args:
     if a.kind == Phrase:
       result.block.items.add a.phrase
     else:
       result.block.items.add RotPhrase(items: @[a])
 
-proc `==`*(a, b: Rot): bool {.noSideEffect.} =
+proc `==`*(a, b: RotTerm): bool {.noSideEffect.} =
   if a.kind != b.kind: return false
   case a.kind
   of Unit: result = true
   of Text: result = a.text == b.text
   of Symbol: result = a.symbol == b.symbol
   of Association:
-    if system.`==`(a.association.items, b.association.items):
+    if system.`==`(a.association, b.association):
       return true
-    if a.association.items.isNil:
+    if a.association.isNil:
       return false
-    result = a.association.items.left == b.association.items.left and
-      a.association.items.right == b.association.items.right
+    result = a.association.left == b.association.left and
+      a.association.right == b.association.right
   of Phrase:
     result = a.phrase.items == b.phrase.items
   of Block:
     result = a.block.items == b.block.items
 
-proc `$`*(a: Rot): string =
+proc `$`*(a: RotTerm): string =
   case a.kind
   of Unit: result = "()"
   of Symbol: result = a.symbol
@@ -48,7 +45,7 @@ proc `$`*(a: Rot): string =
     result = ""
     result.addQuoted(a.text)
   of Association:
-    result = $a.association.items.left & " = " & $a.association.items.right
+    result = $a.association.left & " = " & $a.association.right
   of Phrase:
     result = "("
     for i, a in a.phrase.items:
@@ -64,12 +61,12 @@ proc `$`*(a: Rot): string =
         result.add $b
     result.add "}"
 
-template match*(s: string, b: Rot) =
+template match*(s: string, b: RotTerm) =
   checkpoint s
   let parsed = parseRot(s)
-  let a = Rot(kind: Block, `block`: parsed)
+  let a = RotTerm(kind: Block, `block`: parsed)
   check a == b
 
-template match*(arr: openarray[(string, Rot)]) =
+template match*(arr: openarray[(string, RotTerm)]) =
   for (s, b) in arr.items:
     match s, b

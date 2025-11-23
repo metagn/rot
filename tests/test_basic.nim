@@ -58,7 +58,7 @@ p = "q"
   for (s, b) in tests.items:
     checkpoint s
     let parsed = parseRot(s)
-    let a = Rot(kind: Block, `block`: parsed)
+    let a = RotTerm(kind: Block, `block`: parsed)
     check a == b
 
 test "colon syntax string":

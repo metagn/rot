@@ -282,9 +282,9 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
         assert p.items.len != 0
         result.items.add p
 
-proc parseTerm*(parser: var RotParser, start: char): Rot
+proc parseTerm*(parser: var RotParser, start: char): RotTerm
 
-proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool): Rot =
+proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool): RotTerm =
   result = parseTerm(parser, start)
   for ch in parser.charsHandleComments:
     case ch
@@ -298,11 +298,8 @@ proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool
       if parser.done:
         parser.error("expected phrase term, got end of file")
       let right = parseTerm(parser, parser.current)
-      var association = RotAssociation()
-      new(association.items)
-      association.items.left = result
-      association.items.right = right
-      result = Rot(kind: Association, association: association)
+      let association = (ref RotAssociation)(left: result, right: right)
+      result = RotTerm(kind: Association, association: association)
     else:
       parser.resetPos()
       return
@@ -368,22 +365,19 @@ proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
             parser.error("expected single lhs for colon association")
           let gotNext = parser.nextChar()
           assert gotNext
-        var rhs: Rot
+        var rhs: RotTerm
         if colonBlock:
           let b = parseColonBlock(parser)
-          rhs = Rot(kind: Block, `block`: b)
+          rhs = RotTerm(kind: Block, `block`: b)
         else:
           let s = parseColonString(parser)
-          rhs = Rot(kind: Text, text: s)
+          rhs = RotTerm(kind: Text, text: s)
         if associate:
           let lhs =
             if result.items.len == 1: result.items[0]
-            else: Rot(kind: Phrase, phrase: result)
-          var assoc = RotAssociation()
-          new(assoc.items)
-          assoc.items.left = lhs
-          assoc.items.right = rhs
-          result = RotPhrase(items: @[Rot(kind: Association, association: assoc)])
+            else: RotTerm(kind: Phrase, phrase: result)
+          let assoc = (ref RotAssociation)(left: lhs, right: rhs)
+          result = RotPhrase(items: @[RotTerm(kind: Association, association: assoc)])
         else:
           result.items.add(rhs)
         return
@@ -420,20 +414,20 @@ proc parseBlock*(parser: var RotParser): RotBlock =
       assert phrase.items.len != 0
       result.items.add phrase
 
-proc parseTerm*(parser: var RotParser, start: char): Rot =
+proc parseTerm*(parser: var RotParser, start: char): RotTerm =
   case start
   of '"':
     let s = parseQuoted(parser, start)
     assert parser.current == start
     #if not parser.nextChar():
     #  parser.error("expected closing quote for " & $start)
-    result = Rot(kind: Text, text: s)
+    result = RotTerm(kind: Text, text: s)
   of '`':
     let s = parseQuoted(parser, start)
     assert parser.current == start
     #if not parser.nextChar():
     #  parser.error("expected closing quote for " & $start)
-    result = Rot(kind: Symbol, symbol: s)
+    result = RotTerm(kind: Symbol, symbol: s)
   of '(':
     let p = parsePhrase(parser, newlineSensitive = false)
     let gotNext = parser.nextChar()
@@ -442,9 +436,9 @@ proc parseTerm*(parser: var RotParser, start: char): Rot =
     else:
       parser.error("expected ) for enclosed phrase")
     if p.items.len == 0:
-      result = Rot(kind: Unit)
+      result = RotTerm(kind: Unit)
     else:
-      result = Rot(kind: Phrase, phrase: p)
+      result = RotTerm(kind: Phrase, phrase: p)
   of '{':
     let b = parseBlock(parser)
     let gotNext = parser.nextChar()
@@ -452,7 +446,7 @@ proc parseTerm*(parser: var RotParser, start: char): Rot =
       discard
     else:
       parser.error("expected } for enclosed block")
-    result = Rot(kind: Block, `block`: b)
+    result = RotTerm(kind: Block, `block`: b)
   of '[':
     case parser.options.bracket
     of DisableFeature:
@@ -468,18 +462,18 @@ proc parseTerm*(parser: var RotParser, start: char): Rot =
       newSeq(b.items, p.items.len)
       for i in 0 ..< p.items.len:
         b.items[i] = RotPhrase(items: @[p.items[i]])
-      result = Rot(kind: Block, `block`: b)
+      result = RotTerm(kind: Block, `block`: b)
     of TreatAsSymbol:
       parser.resetPos()
       let s = parseSymbol(parser)
-      result = Rot(kind: Symbol, symbol: s)
+      result = RotTerm(kind: Symbol, symbol: s)
   else:
     if start in parser.symbolDisallowedChars:
       parser.error("expected phrase term, got " & $start)
     else:
       parser.resetPos()
       let s = parseSymbol(parser)
-      result = Rot(kind: Symbol, symbol: s)
+      result = RotTerm(kind: Symbol, symbol: s)
 
 proc parseFullBlock*(parser: var RotParser): RotBlock =
   result = parseBlock(parser)
@@ -530,7 +524,7 @@ proc nextPhraseItemStart*(parser: var RotParser, newlineSensitive: var bool): bo
     parser.resetPos()
   result = true
 
-proc nextPhraseItem*(parser: var RotParser; item: var Rot; newlineSensitive = true): bool =
+proc nextPhraseItem*(parser: var RotParser; item: var RotTerm; newlineSensitive = true): bool =
   var newlineSensitive = newlineSensitive
   if not nextPhraseItemStart(parser, newlineSensitive):
     return false

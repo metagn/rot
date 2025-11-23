@@ -1,17 +1,17 @@
 type
   RotKind* = enum
     Unit, Text, Symbol, Association, Phrase, Block
-  Rot* = object
+  RotTerm* = object
     case kind*: RotKind
     of Unit: discard
     of Text: text*: string
     of Symbol: symbol*: string
-    of Association: association*: RotAssociation
+    of Association: association*: ref RotAssociation
     of Phrase: phrase*: RotPhrase
     of Block: `block`*: RotBlock
   RotBlock* = object
     items*: seq[RotPhrase]
   RotPhrase* = object
-    items*: seq[Rot]
+    items*: seq[RotTerm]
   RotAssociation* = object
-    items*: ref tuple[left, right: Rot]
+    left*, right*: RotTerm
