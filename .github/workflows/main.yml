@@ -27,7 +27,6 @@ jobs:
 
   test-devel:
     runs-on: ubuntu-latest
-    if: false
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +45,6 @@ jobs:
   
   docs:
     runs-on: ubuntu-latest
-    if: false
 
     steps:
       - uses: actions/checkout@v3
@@ -60,6 +58,9 @@ jobs:
       
       - name: compile docs
         run: nimble docs
+      
+      - name: include prewritten docs
+        run: cp -a doc/. docs/
       
       - name: move to subfolder
         run: |
