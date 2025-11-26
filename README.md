@@ -5,13 +5,13 @@ Yet another plaintext data format, inspired by CSV, YAML, and Groovy/Kotlin DSLs
 So there are no surprises, the biggest caveats right away are:
 
 * No numbers or booleans, as in, they are not distinguished from strings. But they should not be horrible to deal with.
-* No escape sequences. Characters are treated literally including newlines, and unicode characters are not specially handled. The idea is that these can be done optionally with a (streaming) preprocessor. Maybe it can be a parser option but it should not be part of the base format.
+* No escape sequences. Characters are treated literally including newlines, and unicode characters are not specially handled.
 * Inline whitespace is a delimiter and unquoted strings do not allow whitespace by default.
 * Other unusual syntax.
 
 See [the spec](https://github.com/metagn/rot/blob/master/doc/spec.md) for more info and some reasoning.
 
-# Use cases vs. other formats
+## Use cases vs. other formats
 
 * CSV: Allows nested structure. Otherwise slightly more inconvenient if anything.
 * JSON: Less clunky structure (e.g. easier to stream) and leaner syntax, while still giving the option of well-defined boundaries and form.
