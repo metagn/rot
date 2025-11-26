@@ -1,4 +1,4 @@
-import ./representation, std/strutils, hemodyne/syncvein
+import ./data, std/strutils, hemodyne/syncvein
 
 type
   SpecialCharacterStrategy* = enum
@@ -19,15 +19,26 @@ type
     options*: RotOptions
     done*: bool
     vein*: Vein
-    pos, previousPos: int
+    pos*, previousPos: int
+    filename*: string
     line*, column*: int
     previousCol: int
-    current: char
-    recordLineIndent: bool
-    currentLineIndent: int
+    current*: char
+    recordLineIndent*: bool
+    currentLineIndent*: int
+  RotParseError* = object of CatchableError
+    filename*: string
+    line*, column*: int
+    simpleMessage*: string
+  RotValueError* = object of CatchableError
 
 proc defaultRotOptions*(): RotOptions =
-  result = RotOptions(colon: EnableFeature, bracket: EnableFeature)
+  result = RotOptions(
+    colon: EnableFeature,
+    bracket: EnableFeature,
+    comment: EnableFeature,
+    inlineSpace: EnableDelimiter,
+    newline: EnableDelimiter)
 
 proc initRotParser*(str: sink string = "", options = defaultRotOptions()): RotParser =
   result = RotParser(vein: initVein(str), options: options)
@@ -40,7 +51,7 @@ proc extendBufferOne(parser: var RotParser) =
   parser.pos -= remove
   parser.previousPos -= remove
 
-proc peekCharOrZero(parser: var RotParser): char =
+proc peekCharOrZero*(parser: var RotParser): char =
   if parser.pos < parser.vein.buffer.len:
     result = parser.vein.buffer[parser.pos]
   else:
@@ -92,16 +103,38 @@ proc nextChar*(parser: var RotParser): bool =
   parser.vein.setFreeBefore(parser.previousPos)
   result = true
 
-iterator rawChars*(parser: var RotParser): char =
-  while parser.nextChar():
-    yield parser.current
+iterator rawChars*(parser: var RotParser, skipFirst: static bool = true): char =
+  when skipFirst:
+    while parser.nextChar():
+      yield parser.current
+  else:
+    while true:
+      yield parser.current
+      if not parser.nextChar():
+        break
+
+proc buildErrorMessage*(error: var RotParseError) =
+  error.msg = ""
+  if error.filename.len != 0:
+    error.msg.add(error.filename)
+  error.msg.add('(')
+  error.msg.addInt(error.line + 1)
+  error.msg.add(", ")
+  error.msg.addInt(error.column)
+  error.msg.add(") ")
+  error.msg.add(error.simpleMessage)
 
 proc error*(parser: var RotParser, msg: string) =
-  raiseAssert(msg)
+  var err = (ref RotParseError)(
+    filename: parser.filename,
+    line: parser.line, column: parser.column,
+    simpleMessage: msg)
+  buildErrorMessage(err[])
+  raise err
 
-iterator charsHandleComments*(parser: var RotParser): char =
+iterator charsHandleComments*(parser: var RotParser, skipFirst: static bool = true): char =
   var comment = false
-  for ch in parser.rawChars:
+  for ch in parser.rawChars(skipFirst):
     case ch
     of '#':
       case parser.options.comment
@@ -119,22 +152,22 @@ iterator charsHandleComments*(parser: var RotParser): char =
 
 const DefaultSymbolDisallowedChars = {',', ';', ':', '=', '{', '}', '(', ')', '[', ']', '#'} + Whitespace
 
-proc symbolDisallowedChars*(parser: var RotParser): set[char] =
+proc symbolDisallowedChars*(options: RotOptions): set[char] =
   result = DefaultSymbolDisallowedChars
-  if parser.options.colon == TreatAsSymbol:
+  if options.colon == TreatAsSymbol:
     result.excl(':')
-  if parser.options.bracket == TreatAsSymbol:
+  if options.bracket == TreatAsSymbol:
     result.excl({'[', ']'})
-  if parser.options.comment == TreatAsSymbol:
+  if options.comment == TreatAsSymbol:
     result.excl('#')
-  if parser.options.inlineSpace == TreatAsSymbolStart:
+  if options.inlineSpace == TreatAsSymbolStart:
     result.excl(Whitespace - Newlines)
-  if parser.options.newline == TreatAsSymbolStart:
+  if options.newline == TreatAsSymbolStart:
     result.excl(Newlines)
 
-proc parseSymbol*(parser: var RotParser): string =
+proc parseUnquotedSymbol*(parser: var RotParser): string =
   result = ""
-  let disallowedChars = parser.symbolDisallowedChars
+  let disallowedChars = parser.options.symbolDisallowedChars
   var concatChars: set[char] = {}
   if parser.options.inlineSpace == ConcatenateSymbol:
     concatChars.incl(Whitespace - Newlines)
@@ -153,7 +186,7 @@ proc parseSymbol*(parser: var RotParser): string =
         concat = ""
       result.add ch
 
-proc parseQuoted*(parser: var RotParser, quote: char): string =
+proc parseQuotedInner*(parser: var RotParser, quote: char): string =
   result = ""
   for ch in parser.rawChars:
     if ch == quote:
@@ -166,6 +199,28 @@ proc parseQuoted*(parser: var RotParser, quote: char): string =
     else:
       result.add(ch)
   parser.error("expected closing quote for " & $quote)
+
+proc parseQuotedText*(parser: var RotParser): string =
+  const quote = '"'
+  if not parser.nextChar() or parser.current != quote:
+    raise newException(RotValueError, "expected quote character for text")
+  result = parseQuotedInner(parser, quote)
+
+proc parseText*(parser: var RotParser): string {.inline.} =
+  result = parseQuotedText(parser)
+
+proc parseQuotedSymbol*(parser: var RotParser): string =
+  const quote = '`'
+  if not parser.nextChar() or parser.current != quote:
+    raise newException(RotValueError, "expected quote character for symbol")
+  result = parseQuotedInner(parser, quote)
+
+proc parseSymbol*(parser: var RotParser): string =
+  const quote = '`'
+  if parser.peekCharOrZero() == quote:
+    result = parseQuotedSymbol(parser)
+  else:
+    result = parseUnquotedSymbol(parser)
 
 proc parseColonString*(parser: var RotParser): string =
   result = ""
@@ -282,10 +337,10 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
         assert p.items.len != 0
         result.items.add p
 
-proc parseTerm*(parser: var RotParser, start: char): RotTerm
+proc parseTermInner*(parser: var RotParser, start: char): RotTerm
 
 proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool): RotTerm =
-  result = parseTerm(parser, start)
+  result = parseTermInner(parser, start)
   for ch in parser.charsHandleComments:
     case ch
     of Whitespace - Newlines:
@@ -297,7 +352,7 @@ proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool
           break
       if parser.done:
         parser.error("expected phrase term, got end of file")
-      let right = parseTerm(parser, parser.current)
+      let right = parseTermInner(parser, parser.current)
       let association = (ref RotAssociation)(left: result, right: right)
       result = RotTerm(kind: Association, association: association)
     else:
@@ -414,19 +469,15 @@ proc parseBlock*(parser: var RotParser): RotBlock =
       assert phrase.items.len != 0
       result.items.add phrase
 
-proc parseTerm*(parser: var RotParser, start: char): RotTerm =
+proc parseTermInner*(parser: var RotParser, start: char): RotTerm =
   case start
   of '"':
-    let s = parseQuoted(parser, start)
+    let s = parseQuotedInner(parser, start)
     assert parser.current == start
-    #if not parser.nextChar():
-    #  parser.error("expected closing quote for " & $start)
     result = RotTerm(kind: Text, text: s)
   of '`':
-    let s = parseQuoted(parser, start)
+    let s = parseQuotedInner(parser, start)
     assert parser.current == start
-    #if not parser.nextChar():
-    #  parser.error("expected closing quote for " & $start)
     result = RotTerm(kind: Symbol, symbol: s)
   of '(':
     let p = parsePhrase(parser, newlineSensitive = false)
@@ -465,15 +516,63 @@ proc parseTerm*(parser: var RotParser, start: char): RotTerm =
       result = RotTerm(kind: Block, `block`: b)
     of TreatAsSymbol:
       parser.resetPos()
-      let s = parseSymbol(parser)
+      let s = parseUnquotedSymbol(parser)
       result = RotTerm(kind: Symbol, symbol: s)
   else:
-    if start in parser.symbolDisallowedChars:
+    if start in parser.options.symbolDisallowedChars:
       parser.error("expected phrase term, got " & $start)
     else:
       parser.resetPos()
-      let s = parseSymbol(parser)
+      let s = parseUnquotedSymbol(parser)
       result = RotTerm(kind: Symbol, symbol: s)
+
+proc parseTerm*(parser: var RotParser): RotTerm =
+  if not parser.nextChar():
+    raise newException(RotValueError, "expected term")
+  result = parseTermInner(parser, parser.current)
+
+type TermStartKind* = enum
+  Invalid,
+  QuotedText,
+  QuotedSymbol,
+  EnclosedPhraseOrUnit,
+  EnclosedBlock,
+  EnclosedPhraseBlock,
+  UnquotedSymbol
+
+proc termStartKind*(start: char, options = defaultRotOptions()): TermStartKind =
+  case start
+  of '"':
+    result = QuotedText
+  of '`':
+    result = QuotedSymbol
+  of '(':
+    result = EnclosedPhraseOrUnit
+  of '{':
+    result = EnclosedBlock
+  of '[':
+    case options.bracket
+    of DisableFeature:
+      result = Invalid
+    of EnableFeature:
+      result = EnclosedPhraseBlock
+    of TreatAsSymbol:
+      result = UnquotedSymbol
+  else:
+    if start in options.symbolDisallowedChars:
+      result = Invalid
+    else:
+      result = UnquotedSymbol
+
+proc peekTermStart*(parser: var RotParser): TermStartKind =
+  if parser.pos < parser.vein.buffer.len:
+    result = termStartKind(parser.vein.buffer[parser.pos], parser.options)
+  else:
+    parser.extendBufferOne()
+    if parser.pos < parser.vein.buffer.len:
+      result = termStartKind(parser.vein.buffer[parser.pos], parser.options)
+    else:
+      result = Invalid # eof
 
 proc parseFullBlock*(parser: var RotParser): RotBlock =
   result = parseBlock(parser)
@@ -488,12 +587,12 @@ proc nextPhraseStart*(parser: var RotParser): bool =
     blockIgnored.excl(Whitespace - Newlines)
   if parser.options.newline == TreatAsSymbolStart:
     blockIgnored.excl(Newlines)
-  if parser.current in blockIgnored:
-    while parser.current in blockIgnored:
-      if not parser.nextChar():
-        return false
-    parser.resetPos()
-  result = true
+  for ch in parser.charsHandleComments(skipFirst = false):
+    if ch notin blockIgnored:
+      parser.resetPos()
+      return true
+  # input finished
+  return false
 
 proc nextPhrase*(parser: var RotParser; phrase: var RotPhrase, newlineSensitive = true): bool =
   if not nextPhraseStart(parser):
@@ -509,20 +608,22 @@ proc nextPhraseItemStart*(parser: var RotParser, newlineSensitive: var bool): bo
     phraseIgnored.excl(Whitespace - Newlines)
   if parser.options.newline == TreatAsSymbolStart:
     phraseIgnored.excl(Newlines)
-  if parser.current in phraseIgnored:
-    while parser.current in phraseIgnored:
-      case parser.current
-      of ',':
-        newlineSensitive = true
-      of Newlines:
-        if newlineSensitive:
-          parser.resetPos()
-          return false
-      else: discard
-      if not parser.nextChar():
+  for ch in parser.charsHandleComments(skipFirst = false):
+    case ch
+    of ',':
+      newlineSensitive = true
+    of Newlines:
+      if newlineSensitive:
+        parser.resetPos()
         return false
-    parser.resetPos()
-  result = true
+    of ';':
+      parser.resetPos()
+      return false
+    elif ch notin phraseIgnored:
+      parser.resetPos()
+      return true
+  # input finished
+  return false
 
 proc nextPhraseItem*(parser: var RotParser; item: var RotTerm; newlineSensitive = true): bool =
   var newlineSensitive = newlineSensitive

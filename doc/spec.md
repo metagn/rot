@@ -41,6 +41,8 @@ abc123
 123abc
 123
 123.456
+123_456
+abc.def
 ```
 
 Can also be surrounded by backticks to allow all characters. Again, repeating backticks allows to use them in the string.
@@ -53,12 +55,11 @@ ghi jkl`
 
 Allowed characters are (for now): Every character that is not used in the data format, except quote characters, and optionally the additional features that can be disabled (whether or not the character is usable is separately configurable). Right now these are the following characters: `,;={}()` (default), `:[]#` (from optional features), and whitespace (optionally disabled, see section).
 
-Author note: I was not sure if these should be different from strings at first (even before the backtick quotes), but it seems more useful to me that something differentiated by syntax also represents something else semantically, after which it can also be extended to make full use of the distinction ("no whitespaces" is not a particularly useful distinction for data). In the end it is allowed to treat them as the same anyway.
-One way to make sense of the distinction might be that normal strings represent arbitrary text, while symbols represent a finite or pre-defined set of strings. These can be things like `null`, `true`/`false`, `NaN`, enum symbols, field/variable names, or even integers or real numbers. Distinguishing these from arbitrary text can be annoying, so arbitrary text is relegated to a separate syntax. But there is nothing wrong with using the syntax for arbitrary text for these values either.
+See the rationale section for the idea behind this syntax.
 
 ### Phrase (and unit)
 
-A phrase is a "row" of data, i.e. a collection of data values that cannot be empty (see author note 2). Items of a phrase are delimited by inline whitespace or commas (`,`). (see author note 1)
+A phrase is a "row" of data, i.e. a collection of data values that cannot be empty (see rationale section for why). Items of a phrase are delimited by inline whitespace or commas (`,`). (these are interchangeable, see rationale section for why)
 
 ```
 abc "def ghi" jkl
@@ -76,9 +77,6 @@ abc,
 jkl
 ```
 
-Author note 1: Whitespace and commas being interchangeable is unintuitive, but it is the most reasonable choice to me by process of elimination. Only using whitespace seems too inflexible and may require a separate "newline escape" character, and commas ideally have some meaning in the language as they pretty clearly delineate information. Only using commas opens up the question of what `abc "def ghi"` by itself means. Allowing both but only one at a time per phrase/document seems like an arbitrary restriction.
-- Addendum: Since this was written, whitespace as delimiters can be optionally disabled in the parser to become part of unquoted strings, see section in additional features.
-
 A phrase can be wrapped in parentheses (`()`) to nest inside other phrases. Using this syntax, newlines also delineate phrase terms like inline whitespace.
 
 ```
@@ -91,8 +89,6 @@ If there are no terms wrapped inside parentheses, then it is treated as a separa
 ```
 () # unit
 ```
-
-Author note 2: The reason phrases cannot be empty is that there is no good syntax for an empty phrase inside a block. Otherwise `()` being an empty phrase is fine, but it would be bad for it to "fold" into an empty phrase inside a block, rather than just be a phrase containing an empty phrase. So `()` is treated as a special syntax for a "unit" type instead.
 
 ### Association
 
@@ -240,7 +236,7 @@ abc = [def, "ghi jkl" mnop
 , (nested "phrase")] # same as {def; "ghi jkl"; mnop; (nested "phrase")}, nested phrase not unwrapped
 ```
 
-Author note: I am really not sure about this syntax, the syntax being different but representing the same thing as curly brackets would need a better reason than "semicolons are ugly". It could be its own data type like "phrase that can be empty" (provided `()` is disallowed) but then there is no good indented version for it, which clashes IMO with it being an "array". The point of `{}` is not to be a syntax for "records" anyway.
+Author note: I am really not sure about this syntax, the syntax being different but representing the same thing as curly brackets would need a better reason than "semicolons are ugly" (although they are also guaranteed to have unary phrases). It could be its own data type like "phrase that can be empty" (provided `()` is disallowed) but then there is no good indented version for it, which clashes IMO with it being an "array". The point of `{}` is not to be a syntax for "records" anyway.
 
 ### Disabled whitespace delimiters
 
@@ -290,4 +286,33 @@ ghi jkl`,name="abc"
 
 # Rationale
 
-todo: escape sequences ("escaped" is a separate format), why no numbers, more?
+### Why symbols, and why no numbers or booleans?
+
+I was not sure if these should be different from strings at first (even before the backtick quotes), but it seems more useful to me that something differentiated by syntax also represents something else semantically, after which it can also be extended to make full use of the distinction (i.e. "no whitespaces" is not a particularly useful distinction for data, so they can be quoted as well). In the end it is allowed to treat them as the same anyway.
+
+One way to make sense of the distinction might be that normal strings represent arbitrary text, while symbols represent a finite or pre-defined set of strings. These can be things like `null`, `true`/`false`, `NaN`, enum symbols, field/variable names, or even integers or real numbers. Distinguishing these from arbitrary text can be annoying, so arbitrary text is relegated to a separate syntax. But there is nothing wrong with using the syntax for arbitrary text for these values either.
+
+The idea with booleans and numbers is that since they are such fundamental types, it is likely trivial for the user to validate and parse them themselves, and even to distinguish them from other symbols if they want. And they can usually be interpreted in different ways, i.e. `on`/`off`, `yes`/`no`, `Y`/`N` can be allowed for booleans, `1e6` can be allowed as an integer or only treated as a float, arbitrary or fixed precision may be allowed. So it is not made any harder for these different options to be expressed than specifically what the format would allow if it treated them differently.
+
+I also prefer things like `123abc` working unquoted.
+
+### Why no escape sequences, and why are quoted strings only multiline?
+
+Escape sequences complicate the syntax by taking up a whole character, usually preventing that character from being used by itself in strings. I would rather the exact escaping scheme be separate from the structure handling parser, which doesn't need an escape character. Escaping quotes in quoted strings is done by repeating the character, escaping newlines for phrase terms is done with `,`. By not giving `\` special behavior inside quotes, a custom escape scheme can still be used in any string.
+
+Similarly a separate syntax for multiline strings seems unnecessarily complex. Something like `"""` conflicts with the quote escaping syntax which is worth the tradeoff IMO, and adding a character like `'` that prohibits newlines seems pointless especially without an escape scheme.
+
+Problems like encoding limitations, platform-specific newlines can make "raw" text difficult to work with. But this doesn't have to take away from applications that don't care about these problems.
+
+### Why are whitespace and commas interchangeable as phrase term delimiters?
+
+This looks unintuitive, but it is the most reasonable choice to me by process of elimination. Only using whitespace seems too inflexible and may require a separate "newline escape" character, and commas ideally have some meaning in the language as they pretty clearly delineate information. Only using commas opens up the question of what `abc "def ghi"` by itself means. Allowing both but only one at a time per phrase/document seems like an arbitrary restriction.
+- Addendum: Since this was written, whitespace as delimiters can be optionally disabled in the parser to become part of unquoted strings, see section in additional features.
+
+### Why can phrases not be empty?
+
+Because there is no good syntax for an empty phrase inside a block. Otherwise `()` being an empty phrase is fine, but it would be bad for it to "fold" into an empty phrase inside a block, rather than just be a phrase containing an empty phrase. So `()` is treated as a special syntax for a "unit" type instead.
+
+### Why can blocks only contain phrases?
+
+This is a consequence of the format being 2 dimensional by default, i.e. dividing into lines, and further dividing inside those lines. It is like this because lines as divided units happens to be easily understood by people, because our screens are 2 dimensional, etc.

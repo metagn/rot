@@ -1,7 +1,7 @@
-import rot/[representation, parser]
-export representation, defaultRotOptions, RotOptions, SpecialCharacterStrategy
+import rot/[data, parser]
+export data, defaultRotOptions, RotOptions, SpecialCharacterStrategy, DelimiterStrategy
 
-proc parseRot*(str: sink string = "", options = defaultRotOptions()): RotBlock =
+proc parseRot*(str: sink string, options = defaultRotOptions()): RotBlock =
   var parser = initRotParser(str, options)
   result = parseFullBlock(parser)
 
