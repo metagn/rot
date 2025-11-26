@@ -30,7 +30,6 @@ type
     filename*: string
     line*, column*: int
     simpleMessage*: string
-  RotValueError* = object of CatchableError
 
 proc defaultRotOptions*(): RotOptions =
   result = RotOptions(

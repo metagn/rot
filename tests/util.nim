@@ -19,48 +19,6 @@ proc b*(args: varargs[RotTerm]): RotTerm =
     else:
       result.block.items.add RotPhrase(items: @[a])
 
-proc `==`*(a, b: RotTerm): bool {.noSideEffect.} =
-  if a.kind != b.kind: return false
-  case a.kind
-  of Unit: result = true
-  of Text: result = a.text == b.text
-  of Symbol: result = a.symbol == b.symbol
-  of Association:
-    if system.`==`(a.association, b.association):
-      return true
-    if a.association.isNil:
-      return false
-    result = a.association.left == b.association.left and
-      a.association.right == b.association.right
-  of Phrase:
-    result = a.phrase.items == b.phrase.items
-  of Block:
-    result = a.block.items == b.block.items
-
-proc `$`*(a: RotTerm): string =
-  case a.kind
-  of Unit: result = "()"
-  of Symbol: result = a.symbol
-  of Text:
-    result = ""
-    result.addQuoted(a.text)
-  of Association:
-    result = $a.association.left & " = " & $a.association.right
-  of Phrase:
-    result = "("
-    for i, a in a.phrase.items:
-      if i != 0: result.add ", "
-      result.add $a
-    result.add ")"
-  of Block:
-    result = "{"
-    for i, a in a.block.items:
-      if i != 0: result.add "; "
-      for j, b in a.items:
-        if j != 0: result.add ", "
-        result.add $b
-    result.add "}"
-
 template match*(s: string, b: RotTerm) =
   checkpoint s
   let parsed = parseRot(s)
