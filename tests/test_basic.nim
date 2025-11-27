@@ -451,6 +451,7 @@ a, (b, "c d",
   """
 abc = "def", ghi = (jkl, mnop)
 """: b(p(a(s"abc", t"def"), a(s"ghi", p(s"jkl", s"mnop")))),
+  "a = b = c": b(p(a(s"a", a(s"b", s"c")))),
   # blocks:
   """
 abc "def" # phrase (abc, "def")
@@ -558,7 +559,7 @@ abc ||
     ghi ||
       jkl
   mno: qrs
-  tuv :: wxyz""": b(p(s"abc", p(a(s"def", p(s"ghi", b(p s"jkl"))), s"mno", t"qrs", s"tuv", b(p(s"wxyz")))))
+  tuv ::= wxyz""": b(p(s"abc", p(a(s"def", p(s"ghi", b(p s"jkl"))), s"mno", t"qrs", a(s"tuv", b(p(s"wxyz"))))))
 }
 
 test "spec additional syntax":

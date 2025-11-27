@@ -100,9 +100,9 @@ abc = "def", ghi = (jkl, mnop)
 
 Similar to commas, newlines after the `=` character are treated as inline whitespace.
 
-An association can only be the item of a phrase. They cannot be nested inside other associations.
+Associations allow nesting and are right associative, i.e. `a = b = c` is an association of `a` with `b = c`. This is mostly for consistency with some other syntax.
 
-Author note: I don't have a good rationalization for this syntax. I would think it is a natively supported shorthand for `= abc "def"` but I guess that would be too general to deal with. I am fine with only having one infix operator though, and one that doesn't have a left/right precedence.
+Author note: I don't have a good rationalization for this syntax. I would think it is a natively supported shorthand for `= abc "def"` but I guess that would be too general to deal with. I am fine with only having one infix operator though.
 
 ### Block
 
@@ -207,7 +207,7 @@ abc {
 }
 ```
 
-An `=` character following the colons (i.e. `:=`, `::=`) will create an association rather than adding the string/block to the phrase. This requires that the phrase has exactly 1 term before the colon.
+An `=` character following the colons (i.e. `:=`, `::=`) will create an association with the last term of the phrase rather than adding the string/block to the phrase. This requires that the phrase has at least 1 term before the colon.
 
 ```
 a :=
@@ -226,8 +226,6 @@ a = {
   d
 }
 ```
-
-Author note: I am not sure about the "exactly 1 term" part, maybe it should just associate the last term, but I don't know the use for this as it would always terminate the phrase.
 
 ### Brackets
 
@@ -280,10 +278,10 @@ abc |
     ghi ||
       jkl
   mno: qrs
-  tuv :: wxyz
+  tuv ::= wxyz
 
 # same as
-abc, (def = (ghi, {jkl}), mno, "qrs", tuv, {wxyz})
+abc, (def = (ghi, {jkl}), mno, "qrs", tuv = {wxyz})
 ```
 
 ### Disabled whitespace delimiters

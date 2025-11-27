@@ -317,7 +317,7 @@ proc parsePhraseItemInner*(parser: var RotParser, start: char, newlineSensitive:
           break
       if parser.done:
         parser.error("expected phrase term, got end of file")
-      let right = parseTermInner(parser, parser.current)
+      let right = parsePhraseItemInner(parser, parser.current, newlineSensitive)
       let association = (ref RotAssociation)(left: result, right: right)
       result = RotTerm(kind: Association, association: association)
     else:
@@ -426,8 +426,8 @@ proc parsePhrase*(parser: var RotParser, context: PhraseContext): RotPhrase =
           assert gotNext
         let associate = parser.peekCharOrZero() == '='
         if associate:
-          if result.items.len != 1:
-            parser.error("expected single lhs for colon association")
+          if result.items.len == 0:
+            parser.error("expected lhs for colon association")
           let gotNext = parser.nextChar()
           assert gotNext
         var rhs: RotTerm
@@ -438,11 +438,9 @@ proc parsePhrase*(parser: var RotParser, context: PhraseContext): RotPhrase =
           let s = parseColonString(parser)
           rhs = RotTerm(kind: Text, text: s)
         if associate:
-          let lhs =
-            if result.items.len == 1: result.items[0]
-            else: RotTerm(kind: Phrase, phrase: result)
+          let lhs = pop(result.items)
           let assoc = (ref RotAssociation)(left: lhs, right: rhs)
-          result = RotPhrase(items: @[RotTerm(kind: Association, association: assoc)])
+          result.items.add(RotTerm(kind: Association, association: assoc))
         else:
           result.items.add(rhs)
         if context.sensitivity != IndentSensitive:
@@ -465,9 +463,8 @@ proc parsePhrase*(parser: var RotParser, context: PhraseContext): RotPhrase =
           assert gotNext
         let associate = parser.peekCharOrZero() == '='
         if associate:
-          if result.items.len != 1:
-            echo result.items
-            parser.error("expected single lhs for pipe association")
+          if result.items.len == 0:
+            parser.error("expected lhs for pipe association")
           let gotNext = parser.nextChar()
           assert gotNext
         var rhs: RotTerm
@@ -481,11 +478,9 @@ proc parsePhrase*(parser: var RotParser, context: PhraseContext): RotPhrase =
         else:
           rhs = RotTerm(kind: Phrase, phrase: p)
         if associate:
-          let lhs =
-            if result.items.len == 1: result.items[0]
-            else: RotTerm(kind: Phrase, phrase: result)
+          let lhs = pop(result.items)
           let assoc = (ref RotAssociation)(left: lhs, right: rhs)
-          result = RotPhrase(items: @[RotTerm(kind: Association, association: assoc)])
+          result.items.add(RotTerm(kind: Association, association: assoc))
         else:
           result.items.add(rhs)
         if context.sensitivity != IndentSensitive:
@@ -513,6 +508,7 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
       finalIndent = parser.currentLineIndent
       parser.resetPos()
       break
+  # can be moved to parseBlock like phrases but simple enough
   if newline:
     if finalIndent <= startIndent:
       return
