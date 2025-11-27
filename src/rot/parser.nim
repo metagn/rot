@@ -12,6 +12,7 @@ type
     TreatAsSymbolStart # implies disabled
   RotOptions* = object
     colon*: SpecialCharacterStrategy
+    pipe*: SpecialCharacterStrategy
     bracket*: SpecialCharacterStrategy
     comment*: SpecialCharacterStrategy
     inlineSpace*, newline*: DelimiterStrategy
@@ -34,16 +35,29 @@ type
 proc defaultRotOptions*(): RotOptions =
   result = RotOptions(
     colon: EnableFeature,
+    pipe: EnableFeature,
     bracket: EnableFeature,
     comment: EnableFeature,
     inlineSpace: EnableDelimiter,
     newline: EnableDelimiter)
 
+proc resetParser*(parser: var RotParser) =
+  parser.done = false
+  parser.pos = 0
+  parser.line = 1
+  parser.column = 0
+  parser.previousPos = -1
+  parser.previousCol = -1
+  parser.recordLineIndent = false
+  parser.currentLineIndent = 0
+
 proc initRotParser*(str: sink string = "", options = defaultRotOptions()): RotParser =
   result = RotParser(vein: initVein(str), options: options)
+  resetParser(result)
 
 proc initRotParser*(loader: proc(): string, options = defaultRotOptions()): RotParser =
   result = RotParser(vein: initVein(loader), options: options)
+  resetParser(result)
 
 proc extendBufferOne(parser: var RotParser) =
   let remove = parser.vein.extendBufferOne()
@@ -99,6 +113,9 @@ proc nextChar*(parser: var RotParser): bool =
       else:
         parser.recordLineIndent = false
     parser.column += 1
+  #let saved =
+  #  if parser.peekStart >= 0: parser.peekStart
+  #  else: parser.previousPos
   parser.vein.setFreeBefore(parser.previousPos)
   result = true
 
@@ -117,7 +134,7 @@ proc buildErrorMessage*(error: var RotParseError) =
   if error.filename.len != 0:
     error.msg.add(error.filename)
   error.msg.add('(')
-  error.msg.addInt(error.line + 1)
+  error.msg.addInt(error.line)
   error.msg.add(", ")
   error.msg.addInt(error.column)
   error.msg.add(") ")
@@ -149,12 +166,14 @@ iterator charsHandleComments*(parser: var RotParser, skipFirst: static bool = tr
     if not comment:
       yield ch
 
-const DefaultSymbolDisallowedChars = {',', ';', ':', '=', '{', '}', '(', ')', '[', ']', '#'} + Whitespace
+const DefaultSymbolDisallowedChars = {',', ';', ':', '|', '=', '{', '}', '(', ')', '[', ']', '#'} + Whitespace
 
 proc symbolDisallowedChars*(options: RotOptions): set[char] =
   result = DefaultSymbolDisallowedChars
   if options.colon == TreatAsSymbol:
     result.excl(':')
+  if options.pipe == TreatAsSymbol:
+    result.excl('|')
   if options.bracket == TreatAsSymbol:
     result.excl({'[', ']'})
   if options.comment == TreatAsSymbol:
@@ -283,7 +302,205 @@ proc parseColonString*(parser: var RotParser): string =
       else:
         result.add(ch)
 
-proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase
+proc parseTermInner*(parser: var RotParser, start: char): RotTerm
+
+proc parsePhraseItemInner*(parser: var RotParser, start: char, newlineSensitive: bool): RotTerm =
+  result = parseTermInner(parser, start)
+  for ch in parser.charsHandleComments:
+    case ch
+    of Whitespace - Newlines:
+      # could also make removing newlines conditional on newlineSensitive
+      discard
+    of '=':
+      for ch2 in parser.charsHandleComments:
+        if ch2 notin Whitespace:
+          break
+      if parser.done:
+        parser.error("expected phrase term, got end of file")
+      let right = parseTermInner(parser, parser.current)
+      let association = (ref RotAssociation)(left: result, right: right)
+      result = RotTerm(kind: Association, association: association)
+    else:
+      parser.resetPos()
+      return
+
+proc parsePhraseItem*(parser: var RotParser, newlineSensitive: bool): RotTerm =
+  if not parser.nextChar():
+    raise newException(RotValueError, "expected phrase item")
+  result = parseTermInner(parser, parser.current)
+
+proc parseColonBlock*(parser: var RotParser): RotBlock
+proc parsePipeInner*(parser: var RotParser): RotPhrase
+
+type
+  PhraseSensitivity* = enum
+    Freeform, NewlineSensitive, IndentSensitive
+  PhraseContext* = object
+    case sensitivity*: PhraseSensitivity
+    of Freeform, NewlineSensitive: discard
+    of IndentSensitive:
+      minIndent*: int
+
+when false:
+  type
+    PhraseState = object
+      currentlySensitive: bool
+      expectingItem: bool
+
+  proc parseItem(parser: var RotParser, phrase: var RotPhrase, ch: char, state: var PhraseState, context: PhraseContext): bool =
+    if context.sensitivity == IndentSensitive and state.currentlySensitive and
+        parser.currentLineIndent < context.minIndent:
+      parser.resetPos()
+      return false
+    if not state.expectingItem:
+      parser.error("expected comma delimiter between phrase terms")
+    let item = parsePhraseItemInner(parser, ch, newlineSensitive = state.currentlySensitive) # true for indent sensitive?
+    phrase.items.add item
+    state.currentlySensitive = context.sensitivity != Freeform
+    if parser.options.inlineSpace != EnableDelimiter:
+      # no character also counts as inline space delimiter
+      state.expectingItem = false
+    result = true
+
+proc parsePhrase*(parser: var RotParser, context: PhraseContext): RotPhrase =
+  result = RotPhrase(items: @[])
+  var currentlySensitive = context.sensitivity != Freeform
+  var expectingItem = true
+  template parseItem() =
+    if context.sensitivity == IndentSensitive and currentlySensitive and parser.currentLineIndent < context.minIndent:
+      parser.resetPos()
+      return
+    if not expectingItem:
+      parser.error("expected comma delimiter between phrase terms")
+    let item = parsePhraseItemInner(parser, ch, newlineSensitive = currentlySensitive) # true for indent sensitive?
+    result.items.add item
+    currentlySensitive = context.sensitivity != Freeform
+    if parser.options.inlineSpace != EnableDelimiter:
+      # no character also counts as inline space delimiter
+      expectingItem = false
+  for ch in parser.charsHandleComments:
+    case ch
+    of ',':
+      if context.sensitivity == IndentSensitive and currentlySensitive and parser.currentLineIndent < context.minIndent:
+        parser.resetPos()
+        return
+      else:
+        if context.sensitivity == NewlineSensitive:
+          # maybe also allow breaking indent sensitivity, but this would have to track if a newline was encountered
+          currentlySensitive = false
+        expectingItem = true
+    of ';':
+      parser.resetPos() # don't consume semicolon
+      return
+    of Whitespace - Newlines:
+      if parser.options.inlineSpace == TreatAsSymbolStart:
+        parseItem()
+    of Newlines:
+      case parser.options.newline
+      of TreatAsSymbolStart:
+        parseItem()
+      of EnableDelimiter:
+        if context.sensitivity == NewlineSensitive and currentlySensitive:
+          parser.resetPos() # don't consume newline
+          return
+      else: discard
+    of ')', '}':
+      # other context
+      parser.resetPos()
+      return
+    of ']':
+      if parser.options.bracket == TreatAsSymbol:
+        parseItem()
+      else:
+        # other context
+        parser.resetPos()
+        return
+    of ':':
+      case parser.options.colon
+      of DisableFeature:
+        parser.error("colon syntax disabled")
+      of EnableFeature:
+        if context.sensitivity == Freeform: # and parser.options.newline == EnableDelimiter
+          parser.error("colon syntax not allowed outside of block context")
+        elif context.sensitivity == IndentSensitive and currentlySensitive and parser.currentLineIndent < context.minIndent:
+          parser.resetPos()
+          return
+        let colonBlock = parser.peekCharOrZero() == ':'
+        if colonBlock:
+          let gotNext = parser.nextChar()
+          assert gotNext
+        let associate = parser.peekCharOrZero() == '='
+        if associate:
+          if result.items.len != 1:
+            parser.error("expected single lhs for colon association")
+          let gotNext = parser.nextChar()
+          assert gotNext
+        var rhs: RotTerm
+        if colonBlock:
+          let b = parseColonBlock(parser)
+          rhs = RotTerm(kind: Block, `block`: b)
+        else:
+          let s = parseColonString(parser)
+          rhs = RotTerm(kind: Text, text: s)
+        if associate:
+          let lhs =
+            if result.items.len == 1: result.items[0]
+            else: RotTerm(kind: Phrase, phrase: result)
+          let assoc = (ref RotAssociation)(left: lhs, right: rhs)
+          result = RotPhrase(items: @[RotTerm(kind: Association, association: assoc)])
+        else:
+          result.items.add(rhs)
+        return
+      of TreatAsSymbol:
+        parseItem()
+    of '|':
+      case parser.options.colon
+      of DisableFeature:
+        parser.error("pipe syntax disabled")
+      of EnableFeature:
+        if context.sensitivity == Freeform: # and parser.options.newline == EnableDelimiter
+          parser.error("pipe syntax not allowed outside of block context")
+        elif context.sensitivity == IndentSensitive and currentlySensitive and parser.currentLineIndent < context.minIndent:
+          parser.resetPos()
+          return
+        let pipeBlock = parser.peekCharOrZero() == '|'
+        if pipeBlock:
+          let gotNext = parser.nextChar()
+          assert gotNext
+        let associate = parser.peekCharOrZero() == '='
+        if associate:
+          if result.items.len != 1:
+            echo result.items
+            parser.error("expected single lhs for pipe association")
+          let gotNext = parser.nextChar()
+          assert gotNext
+        var rhs: RotTerm
+        let p = parsePipeInner(parser)
+        if pipeBlock:
+          var b = RotBlock()
+          newSeq(b.items, p.items.len)
+          for i in 0 ..< p.items.len:
+            b.items[i] = RotPhrase(items: @[p.items[i]])
+          rhs = RotTerm(kind: Block, `block`: b)
+        else:
+          rhs = RotTerm(kind: Phrase, phrase: p)
+        if associate:
+          let lhs =
+            if result.items.len == 1: result.items[0]
+            else: RotTerm(kind: Phrase, phrase: result)
+          let assoc = (ref RotAssociation)(left: lhs, right: rhs)
+          result = RotPhrase(items: @[RotTerm(kind: Association, association: assoc)])
+        else:
+          result.items.add(rhs)
+        if context.sensitivity != IndentSensitive:
+          return
+      of TreatAsSymbol:
+        parseItem()
+    else:
+      parseItem()
+
+proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
+  result = parsePhrase(parser, PhraseContext(sensitivity: if newlineSensitive: NewlineSensitive else: Freeform))
 
 proc parseColonBlock*(parser: var RotParser): RotBlock =
   result = RotBlock(items: @[])
@@ -325,6 +542,8 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
   else:
     for ch in parser.charsHandleComments:
       case ch
+      of Whitespace - Newlines:
+        discard
       of Newlines:
         parser.resetPos() # don't consume newline
         return
@@ -336,109 +555,71 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
         assert p.items.len != 0
         result.items.add p
 
-proc parseTermInner*(parser: var RotParser, start: char): RotTerm
-
-proc parsePhraseItem*(parser: var RotParser, start: char, newlineSensitive: bool): RotTerm =
-  result = parseTermInner(parser, start)
-  for ch in parser.charsHandleComments:
-    case ch
-    of Whitespace - Newlines:
-      # could also make removing newlines conditional on newlineSensitive
-      discard
-    of '=':
-      for ch2 in parser.charsHandleComments:
-        if ch2 notin Whitespace:
-          break
-      if parser.done:
-        parser.error("expected phrase term, got end of file")
-      let right = parseTermInner(parser, parser.current)
-      let association = (ref RotAssociation)(left: result, right: right)
-      result = RotTerm(kind: Association, association: association)
-    else:
-      parser.resetPos()
-      return
-
-proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
+proc parsePipeInner*(parser: var RotParser): RotPhrase =
   result = RotPhrase(items: @[])
-  var currentlyNewlineSensitive = newlineSensitive
-  var expectingItem = true
-  template parseItem() =
-    if not expectingItem:
-      parser.error("expected comma delimiter between phrase terms")
-    let item = parsePhraseItem(parser, ch, currentlyNewlineSensitive)
-    result.items.add item
-    currentlyNewlineSensitive = newlineSensitive
-    if parser.options.inlineSpace != EnableDelimiter:
-      # no character also counts as inline space delimiter
-      expectingItem = false
+  let startIndent = parser.currentLineIndent
+  var newline = false
+  var finalIndent = startIndent
+  # start:
   for ch in parser.charsHandleComments:
     case ch
-    of ',':
-      currentlyNewlineSensitive = false
-      expectingItem = true
-    of ';':
-      parser.resetPos() # don't consume semicolon
-      return
-    of Whitespace - Newlines:
-      if parser.options.inlineSpace == TreatAsSymbolStart:
-        parseItem()
+    of Whitespace - Newlines: discard
     of Newlines:
-      case parser.options.newline
-      of TreatAsSymbolStart:
-        parseItem()
-      of EnableDelimiter:
-        if currentlyNewlineSensitive:
-          parser.resetPos() # don't consume newline
-          return
-      else: discard
-    of ')', '}':
-      # other context
-      parser.resetPos()
-      return
-    of ']':
-      if parser.options.bracket == TreatAsSymbol:
-        parseItem()
-      else:
-        # other context
-        parser.resetPos()
-        return
-    of ':':
-      case parser.options.colon
-      of DisableFeature:
-        parser.error("colon syntax disabled")
-      of EnableFeature:
-        if not newlineSensitive: # and parser.options.newline == EnableDelimiter
-          parser.error("colon syntax not allowed outside of block context")
-        let colonBlock = parser.peekCharOrZero() == ':'
-        if colonBlock:
-          let gotNext = parser.nextChar()
-          assert gotNext
-        let associate = parser.peekCharOrZero() == '='
-        if associate:
-          if result.items.len != 1:
-            parser.error("expected single lhs for colon association")
-          let gotNext = parser.nextChar()
-          assert gotNext
-        var rhs: RotTerm
-        if colonBlock:
-          let b = parseColonBlock(parser)
-          rhs = RotTerm(kind: Block, `block`: b)
-        else:
-          let s = parseColonString(parser)
-          rhs = RotTerm(kind: Text, text: s)
-        if associate:
-          let lhs =
-            if result.items.len == 1: result.items[0]
-            else: RotTerm(kind: Phrase, phrase: result)
-          let assoc = (ref RotAssociation)(left: lhs, right: rhs)
-          result = RotPhrase(items: @[RotTerm(kind: Association, association: assoc)])
-        else:
-          result.items.add(rhs)
-        return
-      of TreatAsSymbol:
-        parseItem()
+      newline = true
     else:
-      parseItem()
+      finalIndent = parser.currentLineIndent
+      parser.resetPos()
+      break
+  if newline:
+    if finalIndent <= startIndent:
+      return
+    result = parsePhrase(parser, PhraseContext(sensitivity: IndentSensitive, minIndent: finalIndent))
+    when false:
+      var currentlyNewlineSensitive = true
+      for ch in parser.charsHandleComments:
+        case ch
+        of Whitespace - Newlines:
+          discard
+        of Newlines:
+          discard
+        of ';':
+          parser.resetPos()
+          return
+        of ',':
+          if parser.currentLineIndent < finalIndent:
+            parser.resetPos()
+            return
+          else:
+            currentlyNewlineSensitive = false
+        else:
+          if currentlyNewlineSensitive and parser.currentLineIndent < finalIndent:
+            parser.resetPos()
+            return
+          else:
+            let p = parsePhraseItemInner(parser, start = ch, newlineSensitive = true)
+            result.items.add p
+            currentlyNewlineSensitive = true
+  else:
+    result = parsePhrase(parser, newlineSensitive = true)
+    when false:
+      var currentlyNewlineSensitive = true
+      for ch in parser.charsHandleComments:
+        case ch
+        of Whitespace - Newlines:
+          discard
+        of Newlines:
+          if currentlyNewlineSensitive:
+            parser.resetPos() # don't consume newline
+            return
+        of ';':
+          parser.resetPos()
+          return
+        of ',':
+          currentlyNewlineSensitive = false
+        else:
+          let p = parsePhraseItemInner(parser, start = ch, newlineSensitive = currentlyNewlineSensitive) # maybe always true
+          result.items.add p
+          currentlyNewlineSensitive = true
 
 proc parseBlock*(parser: var RotParser): RotBlock =
   result = RotBlock(items: @[])
@@ -628,5 +809,5 @@ proc nextPhraseItem*(parser: var RotParser; item: var RotTerm; newlineSensitive 
   var newlineSensitive = newlineSensitive
   if not nextPhraseItemStart(parser, newlineSensitive):
     return false
-  item = parsePhraseItem(parser, parser.current, newlineSensitive)
+  item = parsePhraseItem(parser, newlineSensitive)
   result = true

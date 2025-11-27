@@ -139,7 +139,7 @@ abc = "def" # comment
 
 Author note: No idea for multiline comments yet.
 
-### Whitespace sensitive syntax with colons
+### Indented/line-terminated strings and blocks with colons
 
 Colons can be used to delimit any data with specific forms of whitespace, either up to the end of the current line or inside an indented block. Indentation is referring to the number of inline whitespace characters in a line before a non-space character, tabs and spaces both count as 1.
 
@@ -227,6 +227,8 @@ a = {
 }
 ```
 
+Author note: I am not sure about the "exactly 1 term" part, maybe it should just associate the last term, but I don't know the use for this as it would always terminate the phrase.
+
 ### Brackets
 
 A phrase surrounded by square brackets (`[]`) represents a block with each of the phrase's terms as the items. Each term is added to the block as a phrase containing the term as the only item.
@@ -309,6 +311,116 @@ Problems like encoding limitations, platform-specific newlines can make "raw" te
 This looks unintuitive, but it is the most reasonable choice to me by process of elimination. Only using whitespace seems too inflexible and may require a separate "newline escape" character, and commas ideally have some meaning in the language as they pretty clearly delineate information. Only using commas opens up the question of what `abc "def ghi"` by itself means. Allowing both but only one at a time per phrase/document seems like an arbitrary restriction.
 - Addendum: Since this was written, whitespace as delimiters can be optionally disabled in the parser to become part of unquoted strings, see section in additional features.
 
+I think there is still a way to interpret it that does not necessarily break intuition, explained in the next section.
+
+### Why do phrases have both table row and shell command syntax?
+
+Example:
+
+```
+abc "def"
+abc "def" ghi="jkl"
+# same as
+abc, "def"
+abc, "def", ghi="jkl"
+
+abc = "def" # assignment
+abc = "def", ghi = "jlk" # record?
+
+{ "abc"; "def"; "ghi" } # list?
+{ abc; def; ghi } # command block?
+```
+
+The idea is that shell commands can be considered a "row". Their first column represents the action, and the remaining columns are the arguments. So a command like:
+
+```
+abc "def"
+```
+
+Can be equivalent to:
+
+```
+action = abc, arg1 = "def"
+```
+
+in contexts that allow such commands, and just `column1 = abc, column2 = "def"` in others.
+
+But we do not have to be strict with the use of `=` for this, i.e. it does not just have to denote the column name. We can treat the first column differently depending on if it can be interpreted as an action.
+
+```
+abc = "def"
+abc = "def", ghi = "jkl"
+```
+
+One could interpret the initial association as the action like before:
+
+```
+action = (abc = "def")
+action = (abc = "def"), ghi = "jkl"
+```
+
+But "acting" on an association doesn't make much sense. If anything, the action is setting `abc` to `"def"`, i.e. it is more like:
+
+```
+action = `=`, left = abc, right = "def"
+# this can stay as the interpretation, but there are probably not many uses for it:
+action = `=`, left = abc, right = "def", ghi = "jkl"
+```
+
+Since the command `abc "def"` can also be used to mean "set `abc` to `"def"`", the interpretation can optionally be simplified to this as well. Then `ghi = "jkl"` would become another argument to the `abc` command again.
+
+How we treat the first column can also be generalized to all arbitrary structures, discussed in the next section.
+
+### How is a "command" or "call" phrase distinguished from a value?
+
+```
+abc # command?
+"abc" # value?
+{ "abc" } # list value?
+{ abc } # command value?
+```
+
+Usually it will not make sense to allow values in a context where only commands are expected, but it might make sense to allow commands where values are expected, i.e. `field = (concat "abc " variable " def")`). The way to distinguish these is that instead of interpreting a "command" structure, i.e. `action = ..., arg1 = ..., arg2 = ...`, we can interpret a separate "value" or "entry" structure, like `value = ...`. This can be done by looking at the first column as in the previous section.
+
+```
+abc # if `abc` is a valid action, becomes:
+action = abc
+
+"abc" # becomes:
+value = "abc"
+
+{ ... }
+# in a value context, becomes:
+value = { ... }
+# in a command context, becomes:
+action = { ... }
+# which just executes everything inside as a command, or has some other behavior
+```
+
+A value phrase can also still have multiple terms:
+
+```
+"abc" "def"
+```
+
+Using the entry interpretation, we can treat this as something like an entry to a hash table.
+
+```
+table = {
+  "abc" "def"
+  "ghi", "jkl"
+}
+# becomes
+table = {
+  key = "abc", value = "def";
+  key = "ghi", value = "jkl";
+}
+```
+
+In Lisp for example, any "list" in a program (`(abc def)`, `(abc)`, even `(123)`) is interpreted as a command. Lists that are meant to be data have to be quoted like `'(abc def)`. However, quoted list data can still be interpreted as code, and run as a program. The point being that how data is interpreted can change and is not always decided by the data. This data format was not made with the goal of being syntax for a programming language, but I think it can still make for fairly expressive DSLs.
+
+Although the difference with S-expressions is that "lists" (blocks) cannot contain "scalars" (singular terms), these scalars have to be wrapped in an "entry" structure, and this structure usually has to be interpreted without named fields to stay expressive. I might still add a special syntax for "denoting" structures with information, like a type. In YAML this is the "tag" feature (`!!seq`, `!invoice` etc).
+
 ### Why can phrases not be empty?
 
 Because there is no good syntax for an empty phrase inside a block. Otherwise `()` being an empty phrase is fine, but it would be bad for it to "fold" into an empty phrase inside a block, rather than just be a phrase containing an empty phrase. So `()` is treated as a special syntax for a "unit" type instead.
@@ -316,3 +428,5 @@ Because there is no good syntax for an empty phrase inside a block. Otherwise `(
 ### Why can blocks only contain phrases?
 
 This is a consequence of the format being 2 dimensional by default, i.e. dividing into lines, and further dividing inside those lines. It is like this because lines as divided units happens to be easily understood by people, because our screens are 2 dimensional, etc.
+
+### Character choice in the syntax

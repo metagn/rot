@@ -6,7 +6,7 @@ So there are no surprises, the biggest caveats right away are:
 
 * No numbers or booleans, as in, they are not distinguished from strings. But they should not be horrible to deal with.
 * No escape sequences. Characters are treated literally including newlines, and unicode characters are not specially handled.
-* Inline whitespace is a delimiter and unquoted strings do not allow whitespace by default.
+* Inline whitespace is a delimiter and separates unquoted strings by default.
 * Other unusual syntax.
 
 See [the spec](https://github.com/metagn/rot/blob/master/doc/spec.md) for more info and some reasoning.

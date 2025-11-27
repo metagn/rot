@@ -126,6 +126,12 @@ yza bcd
     klm nop
 qrs tuv"""),
     p(a(s"wxy", t"zab cde"))),
+  """
+a:
+  b c
+  
+# whitespace up to indentation level above
+""": b(p(s"a", t("b c\n"))),
 }
 
 test "colon syntax string":
@@ -194,12 +200,6 @@ wxy ::=
           p(s"klm", s"nop", b()))))),
       p(s"qrs", s"tuv"))),
     p(a(s"wxy", b(p(s"zab", s"cde", b()))))),
-  """
-a:
-  b c
-  
-# whitespace up to indentation level above
-""": b(p(s"a", t("b c\n"))),
 }
 
 test "colon syntax block":
@@ -216,6 +216,160 @@ let bracketTests = {
 
 test "bracket syntax":
   doMatch bracketTests
+
+let pipePhraseTests = {
+  """
+abc | def ghi
+jkl | mno pqr stu, and another,
+and yet another
+vwx |= yza bcd
+efg = (hij klm)
+""": b(
+    p(s"abc", p(s"def", s"ghi")),
+    p(s"jkl", p(
+      s"mno", s"pqr", s"stu",
+      s"and", s"another",
+      s"and", s"yet", s"another")),
+    p(a(s"vwx", p(s"yza", s"bcd"))),
+    p(a(s"efg", p(s"hij", s"klm")))),
+  """
+abc |
+  def ghi
+  jkl mno |
+    pqr stu
+vwx |
+  yza bcd |
+    efg, hij |
+      klm nop
+    |
+      second
+      phrase
+  qrs tuv
+wxy |=
+  zab cde""": b(
+    p(s"abc", p(
+      s"def", s"ghi",
+      s"jkl", s"mno", p(
+        s"pqr", s"stu"))),
+    p(s"vwx", p(
+      s"yza", s"bcd", p(
+        s"efg", s"hij", p(
+          s"klm", s"nop"),
+        p(s"second", s"phrase")),
+      s"qrs", s"tuv")),
+    p(a(s"wxy", p(s"zab", s"cde")))),
+  """
+abc |
+  def ghi
+  jkl mno |
+
+    pqr stu
+
+vwx |
+  yza bcd |
+
+    efg, hij |
+      klm nop
+    |
+      second
+      phrase
+  qrs tuv
+
+wxy |=
+
+  zab cde""": b(
+    p(s"abc", p(
+      s"def", s"ghi",
+      s"jkl", s"mno", p(
+        s"pqr", s"stu"))),
+    p(s"vwx", p(
+      s"yza", s"bcd", p(
+        s"efg", s"hij", p(
+          s"klm", s"nop"),
+        p(s"second", s"phrase")),
+      s"qrs", s"tuv")),
+    p(a(s"wxy", p(s"zab", s"cde")))),
+}
+
+test "pipe syntax single phrase":
+  doMatch pipePhraseTests
+
+let pipeBlockTests = {
+  """
+abc || def ghi
+jkl || mno pqr stu, and another,
+and yet another
+vwx ||= yza bcd
+efg = [hij klm]
+""": b(
+    p(s"abc", b(p(s"def"), p(s"ghi"))),
+    p(s"jkl", b(
+      p s"mno", p s"pqr", p s"stu",
+      p s"and", p s"another",
+      p s"and", p s"yet", p s"another")),
+    p(a(s"vwx", b(p s"yza", p s"bcd"))),
+    p(a(s"efg", b(p s"hij", p s"klm")))),
+  """
+abc ||
+  def ghi
+  jkl mno ||
+    pqr stu
+vwx ||
+  yza bcd ||
+    efg, hij ||
+      klm nop
+    ||
+      second
+      phrase
+  qrs tuv
+wxy ||=
+  zab cde""": b(
+    p(s"abc", b(
+      p s"def", p s"ghi",
+      p s"jkl", p s"mno", p b(
+        p s"pqr", p s"stu"))),
+    p(s"vwx", b(
+      p s"yza", p s"bcd", p b(
+        p s"efg", p s"hij", b(
+          p s"klm", p s"nop"),
+        b(p s"second", p s"phrase")),
+      p s"qrs", p s"tuv")),
+    p(a(s"wxy", b(p s"zab", p s"cde")))),
+  """
+abc ||
+  def ghi
+  jkl mno ||
+
+    pqr stu
+
+vwx ||
+  yza bcd ||
+
+    efg, hij ||
+      klm nop
+    ||
+      second
+      phrase
+  qrs tuv
+
+wxy ||=
+
+  zab cde""": b(
+    p(s"abc", b(
+      p s"def", p s"ghi",
+      p s"jkl", p s"mno", p b(
+        p s"pqr", p s"stu"))),
+    p(s"vwx", b(
+      p s"yza", p s"bcd", p b(
+        p s"efg", p s"hij", b(
+          p s"klm", p s"nop"),
+        b(p s"second", p s"phrase")),
+      p s"qrs", p s"tuv")),
+    p(a(s"wxy", b(p s"zab", p s"cde")))),
+}
+
+test "pipe syntax block":
+  doMatch pipeBlockTests
 
 let commentTests = {
   """abc # def
