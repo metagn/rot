@@ -53,7 +53,7 @@ Can also be surrounded by backticks to allow all characters. Again, repeating ba
 ghi jkl`
 ```
 
-Allowed characters are (for now): Every character that is not used in the data format, except quote characters, and optionally the additional features that can be disabled (whether or not the character is usable is separately configurable). Right now these are the following characters: `,;={}()` (default), `:[]#` (from optional features), and whitespace (optionally disabled, see section).
+Allowed characters are (for now): Every character that is not used in the data format, except quote characters, and optionally the additional features that can be disabled (whether or not the character is usable is separately configurable). Right now these are the following characters: `,;={}()` (default), `:[]|#` (from optional features), and whitespace (optionally disabled, see section).
 
 See the rationale section for the idea behind this syntax.
 
@@ -239,6 +239,52 @@ abc = [def, "ghi jkl" mnop
 ```
 
 Author note: I am really not sure about this syntax, the syntax being different but representing the same thing as curly brackets would need a better reason than "semicolons are ugly" (although they are also guaranteed to have unary phrases). It could be its own data type like "phrase that can be empty" (provided `()` is disallowed) but then there is no good indented version for it, which clashes IMO with it being an "array". The point of `{}` is not to be a syntax for "records" anyway.
+
+### Indented/line-terminated phrases and bracket blocks with pipes
+
+Similar to the colon syntax for strings/blocks, the pipe character (`|`) can be used as an indented or line-terminated syntax for phrases and bracket blocks.
+
+```
+abc | def, "ghi jkl" mnop
+abc |
+  def, "ghi jkl"
+    mnop
+  (nested "phrase")
+
+# same as
+abc, (def, "ghi jkl", mnop)
+abc, (def, "ghi jkl", mnop, (nested, "phrase"))
+```
+
+A second pipe character (`||`) turns the parsed phrase into a block like the bracket syntax.
+
+```
+abc || def, "ghi jkl" mnop
+abc ||
+  def, "ghi jkl"
+    mnop
+  (nested "phrase")
+
+# same as
+abc, {def; "ghi jkl"; mnop}
+abc, {def; "ghi jkl"; mnop; (nested, "phrase")}
+```
+
+`=` can also be added to create an association like colons.
+
+Can be nested, and in general allows multiple indent-sensitive syntax terms.
+
+```
+abc |
+  def |=
+    ghi ||
+      jkl
+  mno: qrs
+  tuv :: wxyz
+
+# same as
+abc, (def = (ghi, {jkl}), mno, "qrs", tuv, {wxyz})
+```
 
 ### Disabled whitespace delimiters
 
@@ -430,3 +476,11 @@ Because there is no good syntax for an empty phrase inside a block. Otherwise `(
 This is a consequence of the format being 2 dimensional by default, i.e. dividing into lines, and further dividing inside those lines. It is like this because lines as divided units happens to be easily understood by people, because our screens are 2 dimensional, etc.
 
 ### Character choice in the syntax
+
+For the most part as little "special" characters as possible are chosen. This mostly affects what characters are allowed in symbols.
+
+The characters for forming structure are almost ubiquitously used in regular language/programming to "separate" terms. So characters like `,`, `;`, all forms of brackets, whitespace, `=`. `:` and `|` are a bit more iffy but for the most part are still used like this. Characters like `/`, `-`, `+`, `>` are either ambiguous in their use of separating things, or straight up represent "joining" things together, and so are not used and are allowed in symbols.
+
+Double quotes (`"`) are pretty ubiquitous for strings in programming, and only really used in full sentences rather than specific words in natural language. Single quotes (`'`) are used in natural language inside words and sometimes in programming like the "prime" symbol in math (`a = 1, a' = a + 1`), among other things. Not that this is the main reason it wasn't used, but it's a relevant caveat if it is used. Backticks (`` ` ``) are less commonly used as quotes but are still used as such, and are uncommon in natural language by themselves.
+
+`#` is the comment character, and does not really fit with any of the ideas here other than the fact that this is a common use for it. Most substitutes would be either too commonly used normally or too unconvential. `~` maybe. Changing it would likely cause more pain.

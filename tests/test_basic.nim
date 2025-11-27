@@ -466,8 +466,7 @@ abc "def" {
     p(t"mnop"),
     p(s"abc", t"def", b(
       p(a(s"ghi", b(p(t"jkl"), p(t"mnop")))),
-      p(t"qrs tuv")
-    )))
+      p(t"qrs tuv"))))
 }
 
 test "spec":
@@ -538,6 +537,28 @@ vwx"""),
   # brackets:
   """abc = [def, "ghi jkl" mnop
 , (nested "phrase")]""": b(p(a(s"abc", b(p(s"def"), p(t"ghi jkl"), p(s"mnop"), p(p(s"nested", t"phrase")))))),
+  # pipes:
+  """abc | def, "ghi jkl" mnop
+abc |
+  def, "ghi jkl"
+    mnop
+  (nested "phrase")""": b(
+    p(s"abc", p(s"def", t"ghi jkl", s"mnop")),
+    p(s"abc", p(s"def", t"ghi jkl", s"mnop", p(s"nested", t"phrase"))),
+    ),
+  """abc || def, "ghi jkl" mnop
+abc ||
+  def, "ghi jkl"
+    mnop
+  (nested "phrase")""": b(
+    p(s"abc", b(p s"def", p t"ghi jkl", p s"mnop")),
+    p(s"abc", b(p s"def", p t"ghi jkl", p s"mnop", p p(s"nested", t"phrase")))),
+  """abc |
+  def |=
+    ghi ||
+      jkl
+  mno: qrs
+  tuv :: wxyz""": b(p(s"abc", p(a(s"def", p(s"ghi", b(p s"jkl"))), s"mno", t"qrs", s"tuv", b(p(s"wxyz")))))
 }
 
 test "spec additional syntax":
