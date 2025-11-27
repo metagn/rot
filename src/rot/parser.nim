@@ -715,7 +715,7 @@ proc nextPhraseStart*(parser: var RotParser): bool =
     blockIgnored.excl(Whitespace - Newlines)
   if parser.options.newline == TreatAsSymbolStart:
     blockIgnored.excl(Newlines)
-  for ch in parser.charsHandleComments(skipFirst = false):
+  for ch in parser.charsHandleComments(#[skipFirst = false]#):
     if ch notin blockIgnored:
       parser.resetPos()
       return true
@@ -736,7 +736,7 @@ proc nextPhraseItemStart*(parser: var RotParser, newlineSensitive: var bool): bo
     phraseIgnored.excl(Whitespace - Newlines)
   if parser.options.newline == TreatAsSymbolStart:
     phraseIgnored.excl(Newlines)
-  for ch in parser.charsHandleComments(skipFirst = false):
+  for ch in parser.charsHandleComments(#[skipFirst = false]#):
     case ch
     of ',':
       newlineSensitive = true
