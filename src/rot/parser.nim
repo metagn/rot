@@ -59,8 +59,8 @@ proc initRotParser*(loader: proc(): string, options = defaultRotOptions()): RotP
   result = RotParser(vein: initVein(loader), options: options)
   resetParser(result)
 
-proc extendBufferOne(parser: var RotParser) =
-  let remove = parser.vein.extendBufferOne()
+proc loadBufferOne(parser: var RotParser) =
+  let remove = parser.vein.loadBufferOne()
   parser.pos -= remove
   parser.previousPos -= remove
 
@@ -68,7 +68,7 @@ proc peekCharOrZero*(parser: var RotParser): char =
   if parser.pos < parser.vein.buffer.len:
     result = parser.vein.buffer[parser.pos]
   else:
-    parser.extendBufferOne()
+    parser.loadBufferOne()
     if parser.pos < parser.vein.buffer.len:
       result = parser.vein.buffer[parser.pos]
     else:
@@ -90,7 +90,7 @@ proc nextChar*(parser: var RotParser): bool =
     if parser.pos < parser.vein.buffer.len:
       parser.vein.buffer[parser.pos]
     else:
-      parser.extendBufferOne()
+      parser.loadBufferOne()
       if parser.pos < parser.vein.buffer.len:
         parser.vein.buffer[parser.pos]
       else:
@@ -696,7 +696,7 @@ proc peekTermStart*(parser: var RotParser): TermStartKind =
   if parser.pos < parser.vein.buffer.len:
     result = termStartKind(parser.vein.buffer[parser.pos], parser.options)
   else:
-    parser.extendBufferOne()
+    parser.loadBufferOne()
     if parser.pos < parser.vein.buffer.len:
       result = termStartKind(parser.vein.buffer[parser.pos], parser.options)
     else:
