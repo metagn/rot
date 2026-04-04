@@ -10,7 +10,7 @@ srcDir        = "src"
 # Dependencies
 
 requires "nim >= 1.0.0"
-requires "https://github.com/metagn/hemodyne"
+requires "https://github.com/holo-nim/flue"
 
 task docs, "build docs for all modules":
   exec "nim r tasks/build_docs.nim"
