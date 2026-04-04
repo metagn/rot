@@ -1,4 +1,4 @@
-import ./data, std/strutils, hemodyne/syncvein
+import ./data, std/strutils, flue/load_buffer
 
 type
   SpecialCharacterStrategy* = enum
@@ -19,7 +19,7 @@ type
   RotParser* = object
     options*: RotOptions
     done*: bool
-    vein*: Vein
+    buffer*: LoadBuffer
     pos*, previousPos: int
     filename*: string
     line*, column*: int
@@ -52,25 +52,25 @@ proc resetParser*(parser: var RotParser) =
   parser.currentLineIndent = 0
 
 proc initRotParser*(str: sink string = "", options = defaultRotOptions()): RotParser =
-  result = RotParser(vein: initVein(str), options: options)
+  result = RotParser(buffer: initLoadBuffer(str), options: options)
   resetParser(result)
 
 proc initRotParser*(loader: proc(): string, options = defaultRotOptions()): RotParser =
-  result = RotParser(vein: initVein(loader), options: options)
+  result = RotParser(buffer: initLoadBuffer(loader), options: options)
   resetParser(result)
 
 proc loadBufferOne(parser: var RotParser) =
-  let remove = parser.vein.loadBufferOne()
+  let remove = parser.buffer.loadOnce()
   parser.pos -= remove
   parser.previousPos -= remove
 
 proc peekCharOrZero*(parser: var RotParser): char =
-  if parser.pos < parser.vein.buffer.len:
-    result = parser.vein.buffer[parser.pos]
+  if parser.pos < parser.buffer.data.len:
+    result = parser.buffer.data[parser.pos]
   else:
     parser.loadBufferOne()
-    if parser.pos < parser.vein.buffer.len:
-      result = parser.vein.buffer[parser.pos]
+    if parser.pos < parser.buffer.data.len:
+      result = parser.buffer.data[parser.pos]
     else:
       result = '\0'
 
@@ -87,12 +87,12 @@ proc nextChar*(parser: var RotParser): bool =
   parser.previousPos = parser.pos
   parser.previousCol = parser.column
   let c =
-    if parser.pos < parser.vein.buffer.len:
-      parser.vein.buffer[parser.pos]
+    if parser.pos < parser.buffer.data.len:
+      parser.buffer.data[parser.pos]
     else:
       parser.loadBufferOne()
-      if parser.pos < parser.vein.buffer.len:
-        parser.vein.buffer[parser.pos]
+      if parser.pos < parser.buffer.data.len:
+        parser.buffer.data[parser.pos]
       else:
         parser.done = true
         return false
@@ -116,7 +116,7 @@ proc nextChar*(parser: var RotParser): bool =
   #let saved =
   #  if parser.peekStart >= 0: parser.peekStart
   #  else: parser.previousPos
-  parser.vein.setFreeBefore(parser.previousPos)
+  parser.buffer.freeBefore = parser.previousPos
   result = true
 
 iterator rawChars*(parser: var RotParser, skipFirst: static bool = true): char =
@@ -693,12 +693,12 @@ proc termStartKind*(start: char, options = defaultRotOptions()): TermStartKind =
       result = UnquotedSymbol
 
 proc peekTermStart*(parser: var RotParser): TermStartKind =
-  if parser.pos < parser.vein.buffer.len:
-    result = termStartKind(parser.vein.buffer[parser.pos], parser.options)
+  if parser.pos < parser.buffer.data.len:
+    result = termStartKind(parser.buffer.data[parser.pos], parser.options)
   else:
     parser.loadBufferOne()
-    if parser.pos < parser.vein.buffer.len:
-      result = termStartKind(parser.vein.buffer[parser.pos], parser.options)
+    if parser.pos < parser.buffer.data.len:
+      result = termStartKind(parser.buffer.data[parser.pos], parser.options)
     else:
       result = Invalid # eof
 
