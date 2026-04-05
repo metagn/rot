@@ -1,4 +1,4 @@
-import ./data, std/strutils, flue/load_buffer
+import ./data, std/strutils, fleu/load_buffer
 
 type
   SpecialCharacterStrategy* = enum
