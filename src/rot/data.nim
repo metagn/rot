@@ -1,7 +1,7 @@
 type
   RotKind* = enum
     Unit, Text, Symbol, Association, Phrase, Block
-  RotTerm* = object
+  RotTerm* {.acyclic.} = object
     case kind*: RotKind
     of Unit: discard
     of Text: text*: string
@@ -37,11 +37,17 @@ proc rotPhrase*(head: sink RotTerm, tail: varargs[RotTerm]): RotTerm {.inline.} 
     phrase.items[i + 1] = tail[i]
   result = RotTerm(kind: Phrase, phrase: phrase)
 
+proc rotPhrase*(items: sink seq[RotTerm]): RotTerm {.inline.} =
+  result = RotTerm(kind: Phrase, phrase: RotPhrase(items: items))
+
 proc rotPhrase*(items: openArray[RotTerm]): RotTerm {.inline.} =
-  result = RotTerm(kind: Phrase, phrase: RotPhrase(items: @items))
+  rotPhrase(@items)
+
+proc rotBlock*(items: sink seq[RotPhrase]): RotTerm {.inline.} =
+  result = RotTerm(kind: Block, `block`: RotBlock(items: items))
 
 proc rotBlock*(items: varargs[RotPhrase]): RotTerm {.inline.} =
-  result = RotTerm(kind: Block, `block`: RotBlock(items: @items))
+  rotBlock(@items)
 
 proc `==`*(a, b: RotTerm): bool {.noSideEffect.} =
   if a.kind != b.kind: return false
