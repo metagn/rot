@@ -67,33 +67,39 @@ proc `==`*(a, b: RotTerm): bool {.noSideEffect.} =
   of Block:
     result = a.block.items == b.block.items
 
+proc addRotQuoted*(result: var string, s: string) =
+  result.add '"'
+  for c in s:
+    if c == '"':
+      result.add c
+    result.add c
+  result.add '"'
+
+proc addRotSymbol*(result: var string, s: string) =
+  const SimpleChars = {'A'..'Z', 'a'..'z', '0'..'9', '_', '.', '-', '+'}
+  var quoted = false
+  for c in s:
+    if c notin SimpleChars:
+      quoted = true
+      break
+  if quoted:
+    result.add '`'
+    for c in s:
+      if c == '`':
+        result.add c
+      result.add c
+    result.add '`'
+  else:
+    result.add s
+
 proc uglyPrint*(result: var string; a: RotTerm) =
   case a.kind
   of Unit:
     result.add "()"
   of Symbol:
-    const SimpleChars = {'A'..'Z', 'a'..'z', '0'..'9', '_', '.', '-', '+'}
-    var quoted = false
-    for c in a.symbol:
-      if c notin SimpleChars:
-        quoted = true
-        break
-    if quoted:
-      result.add '`'
-      for c in a.symbol:
-        if c == '`':
-          result.add c
-        result.add c
-      result.add '`'
-    else:
-      result.add a.symbol
+    result.addRotSymbol(a.symbol)
   of Text:
-    result.add '"'
-    for c in a.text:
-      if c == '"':
-        result.add c
-      result.add c
-    result.add '"'
+    result.addRotQuoted(a.text)
   of Association:
     result.uglyPrint(a.association.left)
     result.add '='
@@ -119,3 +125,14 @@ proc uglyPrint*(a: RotTerm): string {.inline.} =
 
 proc `$`*(a: RotTerm): string {.inline.} =
   result = uglyPrint(a)
+
+proc getString*(a: RotTerm, str: var string): bool =
+  case a.kind
+  of Text:
+    result = true
+    str = a.text
+  of Symbol:
+    result = true
+    str = a.symbol
+  else:
+    result = false

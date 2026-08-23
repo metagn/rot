@@ -343,6 +343,10 @@ type
     of IndentSensitive:
       minIndent*: int
 
+const
+  FreePhraseContext* = PhraseContext(sensitivity: Freeform)
+  LinePhraseContext* = PhraseContext(sensitivity: NewlineSensitive)
+
 proc parseInlineTermInner*(parser: var RotParser, start: char): RotTerm
 proc parseColonBlock*(parser: var RotParser): RotBlock
 proc parsePipeInner*(parser: var RotParser): RotPhrase
@@ -487,20 +491,20 @@ proc checkIndentDelim(parser: var RotParser, state: PhraseState, context: Phrase
 
 type PhraseItemResult* = object
   endedPhrase*: bool
-  case producedItem*: bool
-  of true: item*: RotTerm
+  case hasTerm*: bool
+  of true: term*: RotTerm
   of false: discard
 
 proc parseItem(parser: var RotParser, ch: char, state: var PhraseState, context: PhraseContext): PhraseItemResult =
   ## returns false if phrase is terminated
   if checkIndentDelim(parser, state, context):
     parser.resetPos()
-    return PhraseItemResult(endedPhrase: true, producedItem: false)
+    return PhraseItemResult(endedPhrase: true, hasTerm: false)
   if not state.expectingItem:
     parser.error("expected comma delimiter between phrase terms")
   var terminated = false
   let item = parsePhraseItemInner(parser, ch, context #[newlineSensitive = state.currentlySensitive]#, terminated) # true for indent sensitive?
-  result = PhraseItemResult(producedItem: true, item: item, endedPhrase: terminated)
+  result = PhraseItemResult(hasTerm: true, term: item, endedPhrase: terminated)
   state.currentlySensitive = context.sensitivity != Freeform
   if parser.options.inlineSpace != EnableDelimiter:
     # no character also counts as inline space delimiter
@@ -568,12 +572,12 @@ proc parsePhraseItem*(parser: var RotParser, state: var PhraseState, context: Ph
 iterator parsePhraseItems*(parser: var RotParser, context: PhraseContext): RotTerm =
   var state = initPhraseState(context)
   for ch in parser.charsHandleComments:
-    var itemResult = PhraseItemResult(producedItem: false, endedPhrase: false)
+    var itemResult = PhraseItemResult(hasTerm: false, endedPhrase: false)
     template onItem() =
       itemResult = parseItem(parser, ch, state, context)
     checkPhraseItem(parser, ch, state, context, onItem)
-    if itemResult.producedItem:
-      yield itemResult.item
+    if itemResult.hasTerm:
+      yield itemResult.term
     if itemResult.endedPhrase:
       break
 
