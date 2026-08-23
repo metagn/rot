@@ -476,84 +476,111 @@ proc parsePhraseItemInner*(parser: var RotParser, start: char, context: PhraseCo
       parser.resetPos()
       return
 
-proc parsePhraseItem*(parser: var RotParser, newlineSensitive: bool, terminate: var bool): RotTerm =
-  if not parser.nextChar():
-    raise newException(RotValueError, "expected phrase item")
-  result = parseInlineTermInner(parser, parser.current)
-
-type
-  PhraseState = object
-    currentlySensitive: bool
-    expectingItem: bool
+type PhraseState* = object
+  currentlySensitive: bool
+  expectingItem: bool
 
 proc checkIndentDelim(parser: var RotParser, state: PhraseState, context: PhraseContext): bool {.inline.} =
   result = context.sensitivity == IndentSensitive and
     state.currentlySensitive and
     parser.currentLineIndent < context.minIndent
 
-proc parseItem(parser: var RotParser, phrase: var RotPhrase, ch: char, state: var PhraseState, context: PhraseContext): bool =
+type PhraseItemResult* = object
+  endedPhrase*: bool
+  case producedItem*: bool
+  of true: item*: RotTerm
+  of false: discard
+
+proc parseItem(parser: var RotParser, ch: char, state: var PhraseState, context: PhraseContext): PhraseItemResult =
   ## returns false if phrase is terminated
   if checkIndentDelim(parser, state, context):
     parser.resetPos()
-    return false
+    return PhraseItemResult(endedPhrase: true, producedItem: false)
   if not state.expectingItem:
     parser.error("expected comma delimiter between phrase terms")
   var terminated = false
   let item = parsePhraseItemInner(parser, ch, context #[newlineSensitive = state.currentlySensitive]#, terminated) # true for indent sensitive?
-  phrase.items.add item
+  result = PhraseItemResult(producedItem: true, item: item, endedPhrase: terminated)
   state.currentlySensitive = context.sensitivity != Freeform
   if parser.options.inlineSpace != EnableDelimiter:
     # no character also counts as inline space delimiter
     state.expectingItem = false
-  result = not terminated
+
+proc initPhraseState*(context: PhraseContext): PhraseState {.inline.} =
+  PhraseState(
+    currentlySensitive: context.sensitivity != Freeform,
+    expectingItem: true)
+
+template checkPhraseItem(parser: var RotParser, ch: char, state: var PhraseState, context: PhraseContext, onPhraseItem: untyped) =
+  case ch
+  of ',':
+    if checkIndentDelim(parser, state, context):
+      parser.resetPos()
+      break
+    else:
+      if context.sensitivity == NewlineSensitive:
+        # maybe also allow breaking indent sensitivity, but this would have to track if a newline was encountered
+        state.currentlySensitive = false
+      state.expectingItem = true
+  of ';':
+    parser.resetPos() # don't consume semicolon
+    break
+  of Whitespace - Newlines:
+    if parser.options.inlineSpace == TreatAsSymbolStart:
+      onPhraseItem()
+  of Newlines:
+    case parser.options.newline
+    of TreatAsSymbolStart:
+      onPhraseItem()
+    of EnableDelimiter:
+      if context.sensitivity == NewlineSensitive and state.currentlySensitive:
+        parser.resetPos() # don't consume newline
+        break
+    else: discard
+  of ')', '}':
+    # other context
+    parser.resetPos()
+    break
+  of ']':
+    if parser.options.bracket == TreatAsSymbol:
+      onPhraseItem()
+    else:
+      # other context
+      parser.resetPos()
+      break
+  else:
+    onPhraseItem()
+
+proc findPhraseItem*(parser: var RotParser, state: var PhraseState, context: PhraseContext): bool =
+  ## moves through parser looking for phrase item, false if phrase ended
+  result = false
+  for ch in parser.charsHandleComments:
+    template foundItem() =
+      parser.resetPos()
+      return true
+    checkPhraseItem(parser, ch, state, context, foundItem)
+
+proc parsePhraseItem*(parser: var RotParser, state: var PhraseState, context: PhraseContext): PhraseItemResult =
+  for ch in parser.charsHandleComments:
+    result = parseItem(parser, ch, state, context)
+    return
+
+iterator parsePhraseItems*(parser: var RotParser, context: PhraseContext): RotTerm =
+  var state = initPhraseState(context)
+  for ch in parser.charsHandleComments:
+    var itemResult = PhraseItemResult(producedItem: false, endedPhrase: false)
+    template onItem() =
+      itemResult = parseItem(parser, ch, state, context)
+    checkPhraseItem(parser, ch, state, context, onItem)
+    if itemResult.producedItem:
+      yield itemResult.item
+    if itemResult.endedPhrase:
+      break
 
 proc parsePhrase*(parser: var RotParser, context: PhraseContext): RotPhrase =
   result = RotPhrase(items: @[])
-  var state = PhraseState(
-    currentlySensitive: context.sensitivity != Freeform,
-    expectingItem: true)
-  for ch in parser.charsHandleComments:
-    template parseItem() =
-      if not parseItem(parser, result, ch, state, context):
-        return
-    case ch
-    of ',':
-      if checkIndentDelim(parser, state, context):
-        parser.resetPos()
-        return
-      else:
-        if context.sensitivity == NewlineSensitive:
-          # maybe also allow breaking indent sensitivity, but this would have to track if a newline was encountered
-          state.currentlySensitive = false
-        state.expectingItem = true
-    of ';':
-      parser.resetPos() # don't consume semicolon
-      return
-    of Whitespace - Newlines:
-      if parser.options.inlineSpace == TreatAsSymbolStart:
-        parseItem()
-    of Newlines:
-      case parser.options.newline
-      of TreatAsSymbolStart:
-        parseItem()
-      of EnableDelimiter:
-        if context.sensitivity == NewlineSensitive and state.currentlySensitive:
-          parser.resetPos() # don't consume newline
-          return
-      else: discard
-    of ')', '}':
-      # other context
-      parser.resetPos()
-      return
-    of ']':
-      if parser.options.bracket == TreatAsSymbol:
-        parseItem()
-      else:
-        # other context
-        parser.resetPos()
-        return
-    else:
-      parseItem()
+  for item in parsePhraseItems(parser, context):
+    result.items.add item
 
 proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
   result = parsePhrase(parser, PhraseContext(sensitivity: if newlineSensitive: NewlineSensitive else: Freeform))
@@ -791,38 +818,4 @@ proc nextPhrase*(parser: var RotParser; phrase: var RotPhrase, newlineSensitive 
   if not nextPhraseStart(parser):
     return false
   phrase = parsePhrase(parser, newlineSensitive = newlineSensitive)
-  result = true
-
-proc nextPhraseItemStart*(parser: var RotParser, newlineSensitive: var bool): bool =
-  if parser.done:
-    return false
-  var phraseIgnored = Whitespace + {','}
-  if parser.options.inlineSpace == TreatAsSymbolStart:
-    phraseIgnored.excl(Whitespace - Newlines)
-  if parser.options.newline == TreatAsSymbolStart:
-    phraseIgnored.excl(Newlines)
-  for ch in parser.charsHandleComments(#[skipFirst = false]#):
-    case ch
-    of ',':
-      newlineSensitive = true
-    of Newlines:
-      if newlineSensitive:
-        parser.resetPos()
-        return false
-    of ';':
-      parser.resetPos()
-      return false
-    elif ch notin phraseIgnored:
-      parser.resetPos()
-      return true
-  # input finished
-  return false
-
-proc nextPhraseItem*(parser: var RotParser; item: var RotTerm; newlineSensitive = true): bool =
-  var newlineSensitive = newlineSensitive
-  if not nextPhraseItemStart(parser, newlineSensitive):
-    return false
-  var terminate: bool
-  item = parsePhraseItem(parser, newlineSensitive, terminate)
-  # XXX terminate ignored
   result = true
