@@ -151,6 +151,13 @@ proc nextChar*(parser: var RotParser): bool =
   parser.buffer.freeBefore = parser.previousPos
   result = true
 
+proc nextStr(parser: var RotParser, s: openArray[char], offset = 0): bool {.inline.} =
+  result = parser.peekStr(s, offset)
+  if result:
+    for _ in 0 ..< s.len:
+      let moved = parser.nextChar()
+      assert moved
+
 iterator rawChars*(parser: var RotParser, skipFirst: static bool = true): char =
   when skipFirst:
     while parser.nextChar():
@@ -179,6 +186,8 @@ proc error*(parser: var RotParser, msg: string) =
     simpleMessage: msg)
   buildErrorMessage(err[])
   raise err
+
+# actual parser behavior:
 
 iterator charsHandleComments*(parser: var RotParser, skipFirst: static bool = true): char =
   var comment = false
@@ -350,13 +359,6 @@ const
 proc parseInlineTermInner*(parser: var RotParser, start: char): RotTerm
 proc parseColonBlock*(parser: var RotParser): RotBlock
 proc parsePipeInner*(parser: var RotParser): RotPhrase
-
-proc nextStr(parser: var RotParser, s: openArray[char], offset = 0): bool {.inline.} =
-  result = parser.peekStr(s, offset)
-  if result:
-    for _ in 0 ..< s.len:
-      let moved = parser.nextChar()
-      assert moved
 
 proc parsePhraseItemInner*(parser: var RotParser, start: char, context: PhraseContext, terminate: var bool): RotTerm =
   case start
@@ -586,9 +588,6 @@ proc parsePhrase*(parser: var RotParser, context: PhraseContext): RotPhrase =
   for item in parsePhraseItems(parser, context):
     result.items.add item
 
-proc parsePhrase*(parser: var RotParser, newlineSensitive: bool): RotPhrase =
-  result = parsePhrase(parser, PhraseContext(sensitivity: if newlineSensitive: NewlineSensitive else: Freeform))
-
 proc parseColonBlock*(parser: var RotParser): RotBlock =
   result = RotBlock(items: @[])
   let startIndent = parser.currentLineIndent
@@ -624,7 +623,7 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
           return
         else:
           parser.resetPos()
-          let p = parsePhrase(parser, newlineSensitive = true)
+          let p = parsePhrase(parser, LinePhraseContext)
           assert p.items.len != 0
           result.items.add p
   else:
@@ -639,7 +638,7 @@ proc parseColonBlock*(parser: var RotParser): RotBlock =
         discard
       else:
         parser.resetPos()
-        let p = parsePhrase(parser, newlineSensitive = true)
+        let p = parsePhrase(parser, LinePhraseContext)
         assert p.items.len != 0
         result.items.add p
 
@@ -663,7 +662,7 @@ proc parsePipeInner*(parser: var RotParser): RotPhrase =
       return
     result = parsePhrase(parser, PhraseContext(sensitivity: IndentSensitive, minIndent: finalIndent))
   else:
-    result = parsePhrase(parser, newlineSensitive = true)
+    result = parsePhrase(parser, LinePhraseContext)
 
 proc parseBlock*(parser: var RotParser): RotBlock =
   result = RotBlock(items: @[])
@@ -676,20 +675,20 @@ proc parseBlock*(parser: var RotParser): RotBlock =
     of Whitespace - Newlines:
       if parser.options.inlineSpace == TreatAsSymbolStart:
         parser.resetPos()
-        let phrase = parsePhrase(parser, newlineSensitive = true)
+        let phrase = parsePhrase(parser, LinePhraseContext)
         assert phrase.items.len != 0
         result.items.add phrase
     of Newlines:
       if parser.options.newline == TreatAsSymbolStart:
         parser.resetPos()
-        let phrase = parsePhrase(parser, newlineSensitive = true)
+        let phrase = parsePhrase(parser, LinePhraseContext)
         assert phrase.items.len != 0
         result.items.add phrase
     of ';':
       discard
     else:
       parser.resetPos()
-      let phrase = parsePhrase(parser, newlineSensitive = true)
+      let phrase = parsePhrase(parser, LinePhraseContext)
       assert phrase.items.len != 0
       result.items.add phrase
 
@@ -704,7 +703,7 @@ proc parseInlineTermInner*(parser: var RotParser, start: char): RotTerm =
     assert parser.current == start
     result = RotTerm(kind: Symbol, symbol: s)
   of '(':
-    let p = parsePhrase(parser, newlineSensitive = false)
+    let p = parsePhrase(parser, FreePhraseContext)
     let gotNext = parser.nextChar()
     if gotNext and parser.current == ')':
       discard
@@ -727,7 +726,7 @@ proc parseInlineTermInner*(parser: var RotParser, start: char): RotTerm =
     of DisableFeature:
       parser.error("bracket syntax disabled")
     of EnableFeature:
-      let p = parsePhrase(parser, newlineSensitive = false)
+      let p = parsePhrase(parser, FreePhraseContext)
       let gotNext = parser.nextChar()
       if gotNext and parser.current == ']':
         discard
@@ -818,8 +817,8 @@ proc nextPhraseStart*(parser: var RotParser): bool =
   # input finished
   return false
 
-proc nextPhrase*(parser: var RotParser; phrase: var RotPhrase, newlineSensitive = true): bool =
+proc nextPhrase*(parser: var RotParser; phrase: var RotPhrase, context = LinePhraseContext): bool =
   if not nextPhraseStart(parser):
     return false
-  phrase = parsePhrase(parser, newlineSensitive = newlineSensitive)
+  phrase = parsePhrase(parser, context)
   result = true
