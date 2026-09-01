@@ -3,7 +3,7 @@ when (compiles do: import nimbleutils/bridge):
 else:
   import unittest
 
-import rot, rot/parser, util, std/strutils
+import rot, rot/reader, fleu/load_buffer, util, std/strutils
 
 proc lineLoader(s: string): proc(): string =
   when nimvm:
@@ -35,25 +35,26 @@ c = {
   "i"
 j = "k"
 """
-  var parser = initRotParser(lineLoader(s))
+  let format = defaultRotFormat()
+  var reader = initRotReader(initLoadBuffer(lineLoader(s)))
   var phrases: seq[RotPhrase] = @[]
   var phrase = RotPhrase()
-  check parser.nextPhrase(phrase)
+  check format.nextPhrase(reader, phrase)
   check phrase == p(a(s"a", t"b")).phrase
   phrases.add phrase
-  check parser.nextPhrase(phrase)
+  check format.nextPhrase(reader, phrase)
   check phrase == p(a(s"c", b(
     a(s"d", t"e"),
     a(s"f", t"g")
   ))).phrase
   phrases.add phrase
-  check parser.nextPhrase(phrase)
+  check format.nextPhrase(reader, phrase)
   check phrase == p(a(s"h", t"i")).phrase
   phrases.add phrase
-  check parser.nextPhrase(phrase)
+  check format.nextPhrase(reader, phrase)
   check phrase == p(a(s"j", t"k")).phrase
   phrases.add phrase
-  check not parser.nextPhrase(phrase)
+  check not format.nextPhrase(reader, phrase)
 
   let fullParsed = parseRot(s)
   check phrases == fullParsed.items

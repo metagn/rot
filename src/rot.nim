@@ -1,10 +1,13 @@
-import rot/[data, parser]
-export data, defaultRotOptions, RotOptions, SpecialCharacterStrategy, DelimiterStrategy
+import rot/[data, parser, reader], fleu/load_buffer
+export data, parser, RotReader, initRotReader
 
-proc parseRot*(str: sink string, options = defaultRotOptions()): RotBlock =
-  var parser = initRotParser(str, options)
-  result = parseFullBlock(parser)
+proc parseRot*(str: sink string, format = defaultRotFormat()): RotBlock =
+  var reader = initRotReader(str)
+  result = parseFullBlock(format, reader)
 
-proc parseRot*(loader: proc(): string, options = defaultRotOptions()): RotBlock =
-  var parser = initRotParser(loader, options)
-  result = parseFullBlock(parser)
+when declared(File):
+  proc parseRotFile*(path: string, format = defaultRotFormat()): RotBlock =
+    var file = open(path, fmRead)
+    defer: close(file)
+    var reader = initRotReader(initLoadBuffer(file))
+    result = parseFullBlock(format, reader)
