@@ -502,9 +502,9 @@ proc findPhraseItem*(format: RotFormat, reader: var RotReader, state: var Phrase
     checkPhraseItem(format, reader, ch, state, context, foundItem)
 
 proc parsePhraseItem*(format: RotFormat, reader: var RotReader, state: var PhraseState, context: WhitespaceContext): PhraseItemResult =
-  for ch in format.charsHandleComments(reader):
-    result = parseItem(format, reader, ch, state, context)
-    return
+  if not reader.nextChar():
+    raise newException(RotValueError, "expected phrase item")
+  result = parseItem(format, reader, reader.current, state, context)
 
 iterator parsePhraseItems*(format: RotFormat, reader: var RotReader, context: WhitespaceContext): RotArgument =
   var state = initPhraseState(context)
@@ -523,54 +523,75 @@ proc parsePhrase*(format: RotFormat, reader: var RotReader, context: WhitespaceC
   for item in parsePhraseItems(format, reader, context):
     result.items.add item
 
-proc parseBlock*(format: RotFormat, reader: var RotReader, context: WhitespaceContext = FreeContext): RotBlock =
-  result = RotBlock(items: @[])
-  template onPhraseStart() =
+template checkBlockPhrase(format: RotFormat, reader: var RotReader, ch: char, context: WhitespaceContext, onPhrase: untyped) =
+  case ch
+  of ')', '}':
+    # other context
     reader.resetPos()
-    let phrase = parsePhrase(format, reader, LineContext)
-    assert phrase.items.len != 0
-    result.items.add phrase
-  for ch in format.charsHandleComments(reader):
-    case ch
-    of ')', '}':
+    break
+  of ']':
+    if format.bracket == TreatAsSymbol:
+      onPhrase()
+    else:
       # other context
       reader.resetPos()
       break
-    of ']':
-      if format.bracket == TreatAsSymbol:
-        onPhraseStart()
-      else:
-        # other context
-        reader.resetPos()
-        break
-    of Whitespace - Newlines:
-      if format.inlineSpace == TreatAsSymbolStart and not
-          # inline whitespace ignored if part of indent
-          (context.sensitivity == IndentSensitive and reader.currentLineIndent <= context.minIndent):
-        onPhraseStart()
-    of Newlines:
-      case context.sensitivity
-      of Freeform:
-        if format.newline == TreatAsSymbolStart:
-          onPhraseStart()
-      of NewlineSensitive:
-        reader.resetPos()
-        break
-      of IndentSensitive:
-        # default newline behavior necessary for indent sensitivity to function
-        discard
-    of ';':
-      if context.sensitivity == IndentSensitive and
-          reader.currentLineIndent < context.minIndent:
-        reader.resetPos()
-        break
+  of Whitespace - Newlines:
+    if format.inlineSpace == TreatAsSymbolStart and not
+        # inline whitespace ignored if part of indent
+        (context.sensitivity == IndentSensitive and reader.currentLineIndent <= context.minIndent):
+      onPhrase()
+  of Newlines:
+    case context.sensitivity
+    of Freeform:
+      if format.newline == TreatAsSymbolStart:
+        onPhrase()
+    of NewlineSensitive:
+      reader.resetPos()
+      break
+    of IndentSensitive:
+      # default newline behavior necessary for indent sensitivity to function
+      discard
+  of ';':
+    if context.sensitivity == IndentSensitive and
+        reader.currentLineIndent < context.minIndent:
+      reader.resetPos()
+      break
+  else:
+    if context.sensitivity == IndentSensitive and
+        reader.currentLineIndent < context.minIndent:
+      reader.resetPos()
+      break
     else:
-      if context.sensitivity == IndentSensitive and
-          reader.currentLineIndent < context.minIndent:
-        reader.resetPos()
-        break
-      else:
-        onPhraseStart()
+      onPhrase()
+
+proc findBlockPhrase*(format: RotFormat, reader: var RotReader, context: WhitespaceContext = FreeContext): bool =
+  ## moves through reader looking for block phrase, false if phrase ended
+  result = false
+  for ch in format.charsHandleComments(reader):
+    template foundItem() =
+      reader.resetPos()
+      return true
+    checkBlockPhrase(format, reader, ch, context, foundItem)
+
+proc parseBlockPhrase*(format: RotFormat, reader: var RotReader, context: WhitespaceContext = FreeContext): RotPhrase =
+  result = parsePhrase(format, reader, LineContext)
+  assert result.items.len != 0
+
+iterator parseBlockPhrases*(format: RotFormat, reader: var RotReader, context: WhitespaceContext = FreeContext): RotPhrase =
+  while format.findBlockPhrase(reader, context):
+    let phrase = parseBlockPhrase(format, reader, context)
+    yield phrase
+
+proc parseBlock*(format: RotFormat, reader: var RotReader, context: WhitespaceContext = FreeContext): RotBlock =
+  result = RotBlock(items: @[])
+  for ch in format.charsHandleComments(reader):
+    template onPhraseStart() =
+      reader.resetPos()
+      let phrase = parsePhrase(format, reader, LineContext)
+      assert phrase.items.len != 0
+      result.items.add phrase
+    checkBlockPhrase(format, reader, ch, context, onPhraseStart)
 
 type TermStartKind* = enum
   Invalid,
@@ -616,24 +637,3 @@ proc parseFullBlock*(format: RotFormat, reader: var RotReader): RotBlock =
   result = parseBlock(format, reader)
   if not reader.done:
     reader.error("block finished before input: " & $reader.current)
-
-proc nextPhraseStart*(format: RotFormat, reader: var RotReader): bool =
-  if reader.done:
-    return false
-  var blockIgnored = Whitespace + {';'}
-  if format.inlineSpace == TreatAsSymbolStart:
-    blockIgnored.excl(Whitespace - Newlines)
-  if format.newline == TreatAsSymbolStart:
-    blockIgnored.excl(Newlines)
-  for ch in format.charsHandleComments(reader, #[skipFirst = false]#):
-    if ch notin blockIgnored:
-      reader.resetPos()
-      return true
-  # input finished
-  return false
-
-proc nextPhrase*(format: RotFormat, reader: var RotReader; phrase: var RotPhrase, context = LineContext): bool =
-  if not nextPhraseStart(format, reader):
-    return false
-  phrase = parsePhrase(format, reader, context)
-  result = true

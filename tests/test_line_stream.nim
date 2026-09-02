@@ -37,24 +37,29 @@ j = "k"
 """
   let format = defaultRotFormat()
   var reader = initRotReader(initLoadBuffer(lineLoader(s)))
+  let blockContext = FreeContext
   var phrases: seq[RotPhrase] = @[]
-  var phrase = RotPhrase()
-  check format.nextPhrase(reader, phrase)
+  var phrase: RotPhrase
+  check format.findBlockPhrase(reader, blockContext)
+  phrase = format.parseBlockPhrase(reader, blockContext)
   check phrase == p(s"a", a t"b").phrase
   phrases.add phrase
-  check format.nextPhrase(reader, phrase)
+  check format.findBlockPhrase(reader, blockContext)
+  phrase = format.parseBlockPhrase(reader, blockContext)
   check phrase == p(s"c", a b(
     p(s"d", a t"e"),
     p(s"f", a t"g")
   )).phrase
   phrases.add phrase
-  check format.nextPhrase(reader, phrase)
+  check format.findBlockPhrase(reader, blockContext)
+  phrase = format.parseBlockPhrase(reader, blockContext)
   check phrase == p(s"h", a t"i").phrase
   phrases.add phrase
-  check format.nextPhrase(reader, phrase)
+  check format.findBlockPhrase(reader, blockContext)
+  phrase = format.parseBlockPhrase(reader, blockContext)
   check phrase == p(s"j", a t"k").phrase
   phrases.add phrase
-  check not format.nextPhrase(reader, phrase)
+  check not format.findBlockPhrase(reader, blockContext)
 
   let fullParsed = parseRot(s)
   check phrases == fullParsed.items
