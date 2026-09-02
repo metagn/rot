@@ -222,7 +222,16 @@ proc parseInlineTermInner*(format: RotFormat, reader: var RotReader, start: char
 proc parseColonBlock*(format: RotFormat, reader: var RotReader): RotBlock
 proc parsePipeInner*(format: RotFormat, reader: var RotReader): RotPhrase
 
-proc parsePhraseItemInner*(format: RotFormat, reader: var RotReader, start: char, context: PhraseContext, terminate: var bool): RotTerm =
+proc phraseToBlock*(p: RotPhrase): RotBlock =
+  result = RotBlock()
+  result.items = newSeqOfCap[RotPhrase](p.items.len)
+  for item in p.items:
+    if item.associated:
+      result.items[^1].items.add RotArgument(associated: true, term: item.term)
+    else:
+      result.items.add RotPhrase(items: @[RotArgument(associated: false, term: item.term)])
+
+proc parsePhraseItemInner*(format: RotFormat, reader: var RotReader, start: char, associationAllowed: bool, context: PhraseContext, terminate: var bool): RotArgument =
   case start
   of ':':
     case format.colon
@@ -235,18 +244,23 @@ proc parsePhraseItemInner*(format: RotFormat, reader: var RotReader, start: char
       if colonBlock:
         let gotNext = reader.nextChar()
         assert gotNext
-      if reader.peekCharOrZero() == '=':
-        reader.error("expected lhs for colon association")
+      let associate = reader.peekCharOrZero() == '='
+      if associate:
+        if associationAllowed:
+          let gotNext = reader.nextChar()
+          assert gotNext
+        else:
+          reader.error("expected lhs for colon association")
       if colonBlock:
         let b = parseColonBlock(format, reader)
-        result = RotTerm(kind: Block, `block`: b)
+        result = RotArgument(associated: associate, term: RotTerm(kind: Block, `block`: b))
       else:
         let s = parseColonString(format, reader)
-        result = RotTerm(kind: Text, text: s)
+        result = RotArgument(associated: associate, term: RotTerm(kind: Text, text: s))
       terminate = context.sensitivity != IndentSensitive
       return
     of TreatAsSymbol:
-      result = parseInlineTermInner(format, reader, start)
+      result = RotArgument(associated: false, term: parseInlineTermInner(format, reader, start))
   of '|':
     case format.colon
     of DisableFeature:
@@ -258,95 +272,45 @@ proc parsePhraseItemInner*(format: RotFormat, reader: var RotReader, start: char
       if pipeBlock:
         let gotNext = reader.nextChar()
         assert gotNext
-      if reader.peekCharOrZero() == '=':
-        reader.error("expected lhs for pipe association")
+      let associate = reader.peekCharOrZero() == '='
+      if associate:
+        if associationAllowed:
+          let gotNext = reader.nextChar()
+          assert gotNext
+        else:
+          reader.error("expected lhs for pipe association")
       let p = parsePipeInner(format, reader)
       if pipeBlock:
-        var b = RotBlock()
-        newSeq(b.items, p.items.len)
-        for i in 0 ..< p.items.len:
-          b.items[i] = RotPhrase(items: @[p.items[i]])
-        result = RotTerm(kind: Block, `block`: b)
+        let b = phraseToBlock(p)
+        result = RotArgument(associated: associate, term: RotTerm(kind: Block, `block`: b))
       else:
-        result = RotTerm(kind: Phrase, phrase: p)
+        result = RotArgument(associated: associate, term: RotTerm(kind: Phrase, phrase: p))
       terminate = context.sensitivity != IndentSensitive
       return
     of TreatAsSymbol:
-      result = parseInlineTermInner(format, reader, start)
+      result = RotArgument(associated: false, term: parseInlineTermInner(format, reader, start))
+  of '=':
+    if not associationAllowed:
+      reader.error("expected lhs for association")
+    var start2: char
+    for ch2 in format.charsHandleComments(reader):
+      if ch2 notin Whitespace:
+        # skips newlines too
+        start2 = ch2
+        break
+    if reader.done:
+      reader.error("expected rhs for association, got end of file")
+    let right = parsePhraseItemInner(format, reader, start2, associationAllowed = false, context, terminate)
+      # temporary until the above are handled as normal terms
+    assert not right.associated
+    result = RotArgument(associated: true, term: right.term)
   else:
-    result = parseInlineTermInner(format, reader, start)
-  for ch in format.charsHandleComments(reader):
-    case ch
-    of Whitespace - Newlines:
-      # could also make removing newlines conditional on newlineSensitive
-      discard
-    of '=':
-      for ch2 in format.charsHandleComments(reader):
-        if ch2 notin Whitespace:
-          break
-      if reader.done:
-        reader.error("expected phrase term, got end of file")
-      let right = parsePhraseItemInner(format, reader, reader.current, context, terminate)
-      result = rotAssociation(result, right)
-    of ':':
-      case format.colon
-      of DisableFeature:
-        reader.error("colon syntax disabled")
-      of EnableFeature:
-        if context.sensitivity == Freeform: # and format.newline == EnableDelimiter
-          reader.error("colon syntax not allowed outside of block context")
-        # multi char lookahead:
-        if reader.nextStr(":="):
-          let b = parseColonBlock(format, reader)
-          let rhs = RotTerm(kind: Block, `block`: b)
-          result = rotAssociation(result, rhs)
-          terminate = context.sensitivity != IndentSensitive
-        elif reader.nextStr("="):
-          let s = parseColonString(format, reader)
-          let rhs = RotTerm(kind: Text, text: s)
-          result = rotAssociation(result, rhs)
-          terminate = context.sensitivity != IndentSensitive
-        else:
-          reader.resetPos()
-        return
-      of TreatAsSymbol:
-        reader.resetPos()
-        return
-    of '|':
-      case format.colon
-      of DisableFeature:
-        reader.error("pipe syntax disabled")
-      of EnableFeature:
-        if context.sensitivity == Freeform: # and format.newline == EnableDelimiter
-          reader.error("pipe syntax not allowed outside of block context")
-        # multi char lookahead:
-        if reader.nextStr("|="):
-          let p = parsePipeInner(format, reader)
-          var b = RotBlock()
-          newSeq(b.items, p.items.len)
-          for i in 0 ..< p.items.len:
-            b.items[i] = RotPhrase(items: @[p.items[i]])
-          let rhs = RotTerm(kind: Block, `block`: b)
-          result = rotAssociation(result, rhs)
-          terminate = context.sensitivity != IndentSensitive
-        elif reader.nextStr("="):
-          let p = parsePipeInner(format, reader)
-          let rhs = RotTerm(kind: Phrase, phrase: p)
-          result = rotAssociation(result, rhs)
-          terminate = context.sensitivity != IndentSensitive
-        else:
-          reader.resetPos()
-        return
-      of TreatAsSymbol:
-        reader.resetPos()
-        return
-    else:
-      reader.resetPos()
-      return
+    result = RotArgument(associated: false, term: parseInlineTermInner(format, reader, start))
 
 type PhraseState* = object
   currentlySensitive: bool
   expectingItem: bool
+  allowAssociation: bool
 
 proc checkIndentDelim(format: RotFormat, reader: var RotReader, state: PhraseState, context: PhraseContext): bool {.inline.} =
   result = context.sensitivity == IndentSensitive and
@@ -355,21 +319,22 @@ proc checkIndentDelim(format: RotFormat, reader: var RotReader, state: PhraseSta
 
 type PhraseItemResult* = object
   endedPhrase*: bool
-  case hasTerm*: bool
-  of true: term*: RotTerm
+  # phrase can end with item
+  case hasItem*: bool
+  of true: item*: RotArgument
   of false: discard
 
 proc parseItem(format: RotFormat, reader: var RotReader, ch: char, state: var PhraseState, context: PhraseContext): PhraseItemResult =
-  ## returns false if phrase is terminated
   if checkIndentDelim(format, reader, state, context):
     reader.resetPos()
-    return PhraseItemResult(endedPhrase: true, hasTerm: false)
+    return PhraseItemResult(endedPhrase: true, hasItem: false)
   if not state.expectingItem:
     reader.error("expected comma delimiter between phrase terms")
   var terminated = false
-  let item = parsePhraseItemInner(format, reader, ch, context #[newlineSensitive = state.currentlySensitive]#, terminated) # true for indent sensitive?
-  result = PhraseItemResult(hasTerm: true, term: item, endedPhrase: terminated)
+  let item = parsePhraseItemInner(format, reader, ch, state.allowAssociation, context, terminated) # true for indent sensitive?
+  result = PhraseItemResult(hasItem: true, item: item, endedPhrase: terminated)
   state.currentlySensitive = context.sensitivity != Freeform
+  state.allowAssociation = true
   if format.inlineSpace != EnableDelimiter:
     # no character also counts as inline space delimiter
     state.expectingItem = false
@@ -377,7 +342,8 @@ proc parseItem(format: RotFormat, reader: var RotReader, ch: char, state: var Ph
 proc initPhraseState*(context: PhraseContext): PhraseState {.inline.} =
   PhraseState(
     currentlySensitive: context.sensitivity != Freeform,
-    expectingItem: true)
+    expectingItem: true,
+    allowAssociation: false)
 
 template checkPhraseItem(format: RotFormat, reader: var RotReader, ch: char, state: var PhraseState, context: PhraseContext, onPhraseItem: untyped) =
   case ch
@@ -390,6 +356,7 @@ template checkPhraseItem(format: RotFormat, reader: var RotReader, ch: char, sta
         # maybe also allow breaking indent sensitivity, but this would have to track if a newline was encountered
         state.currentlySensitive = false
       state.expectingItem = true
+      state.allowAssociation = false
   of ';':
     reader.resetPos() # don't consume semicolon
     break
@@ -433,15 +400,15 @@ proc parsePhraseItem*(format: RotFormat, reader: var RotReader, state: var Phras
     result = parseItem(format, reader, ch, state, context)
     return
 
-iterator parsePhraseItems*(format: RotFormat, reader: var RotReader, context: PhraseContext): RotTerm =
+iterator parsePhraseItems*(format: RotFormat, reader: var RotReader, context: PhraseContext): RotArgument =
   var state = initPhraseState(context)
   for ch in format.charsHandleComments(reader):
-    var itemResult = PhraseItemResult(hasTerm: false, endedPhrase: false)
+    var itemResult = PhraseItemResult(hasItem: false, endedPhrase: false)
     template onItem() =
       itemResult = parseItem(format, reader, ch, state, context)
     checkPhraseItem(format, reader, ch, state, context, onItem)
-    if itemResult.hasTerm:
-      yield itemResult.term
+    if itemResult.hasItem:
+      yield itemResult.item
     if itemResult.endedPhrase:
       break
 
@@ -594,10 +561,7 @@ proc parseInlineTermInner*(format: RotFormat, reader: var RotReader, start: char
         discard
       else:
         reader.error("expected ] for enclosed block")
-      var b = RotBlock()
-      newSeq(b.items, p.items.len)
-      for i in 0 ..< p.items.len:
-        b.items[i] = RotPhrase(items: @[p.items[i]])
+      let b = phraseToBlock(p)
       result = RotTerm(kind: Block, `block`: b)
     of TreatAsSymbol:
       reader.resetPos()

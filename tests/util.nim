@@ -3,10 +3,13 @@ import rot
 proc t*(s: string): RotTerm = RotTerm(kind: Text, text: s)
 proc s*(s: string): RotTerm = RotTerm(kind: Symbol, symbol: s)
 
-proc a*(a, b: RotTerm): RotTerm =
-  result = RotTerm(kind: Association, association: (ref RotAssociation)(left: a, right: b))
+proc a*(a: RotTerm): RotAssociated =
+  result = associated(a)
 
-proc p*(args: varargs[RotTerm]): RotTerm =
+proc a*(a, b: RotTerm): RotTerm =
+  result = rotPhrase(a, associated(b))
+
+proc p*(args: varargs[RotArgument, toArgument]): RotTerm =
   result = RotTerm(kind: Phrase, phrase: RotPhrase(items: @[]))
   for a in args:
     result.phrase.items.add a
@@ -17,7 +20,7 @@ proc b*(args: varargs[RotTerm]): RotTerm =
     if a.kind == Phrase:
       result.block.items.add a.phrase
     else:
-      result.block.items.add RotPhrase(items: @[a])
+      result.block.items.add RotPhrase(items: @[toArgument(a)])
 
 template match*(s: string, b: RotTerm) =
   checkpoint s

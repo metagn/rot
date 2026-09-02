@@ -100,9 +100,9 @@ abc = "def", ghi = (jkl, mnop)
 
 Similar to commas, newlines after the `=` character are treated as inline whitespace.
 
-Associations allow nesting and are right associative, i.e. `a = b = c` is an association of `a` with `b = c`. This is mostly for consistency with some other syntax.
+More than one association in a row is allowed, i.e. `a = b = c` is an association of `b` with `a` and then `c` with `b`.
 
-Author note: I don't have a good rationalization for this syntax. I would think it is a natively supported shorthand for `= abc "def"` but I guess that would be too general to deal with. I am fine with only having one infix operator though.
+In data this is represented as each phrase "argument" optionally being an association to the previous phrase term.
 
 ### Block
 
@@ -235,6 +235,8 @@ A phrase surrounded by square brackets (`[]`) represents a block with each of th
 abc = [def, "ghi jkl" mnop
 , (nested "phrase")] # same as {def; "ghi jkl"; mnop; (nested "phrase")}, nested phrase not unwrapped
 ```
+
+Associations are joined into their own phrases, i.e. `[a, b = c, d]` is equivalent to `{a; b = c; d}`.
 
 Author note: I am really not sure about this syntax, the syntax being different but representing the same thing as curly brackets would need a better reason than "semicolons are ugly" (although they are also guaranteed to have unary phrases). It could be its own data type like "phrase that can be empty" (provided `()` is disallowed) but then there is no good indented version for it, which clashes IMO with it being an "array". The point of `{}` is not to be a syntax for "records" anyway.
 

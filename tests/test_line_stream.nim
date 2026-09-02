@@ -40,19 +40,19 @@ j = "k"
   var phrases: seq[RotPhrase] = @[]
   var phrase = RotPhrase()
   check format.nextPhrase(reader, phrase)
-  check phrase == p(a(s"a", t"b")).phrase
+  check phrase == p(s"a", a t"b").phrase
   phrases.add phrase
   check format.nextPhrase(reader, phrase)
-  check phrase == p(a(s"c", b(
-    a(s"d", t"e"),
-    a(s"f", t"g")
-  ))).phrase
+  check phrase == p(s"c", a b(
+    p(s"d", a t"e"),
+    p(s"f", a t"g")
+  )).phrase
   phrases.add phrase
   check format.nextPhrase(reader, phrase)
-  check phrase == p(a(s"h", t"i")).phrase
+  check phrase == p(s"h", a t"i").phrase
   phrases.add phrase
   check format.nextPhrase(reader, phrase)
-  check phrase == p(a(s"j", t"k")).phrase
+  check phrase == p(s"j", a t"k").phrase
   phrases.add phrase
   check not format.nextPhrase(reader, phrase)
 
