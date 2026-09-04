@@ -343,7 +343,7 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
       else:
         let s = parseColonStringInner(format, reader)
         result = RotArgument(associated: associate, term: RotTerm(kind: Text, text: s))
-      state.ended = state.context.sensitivity != IndentSensitive
+      state.ended = state.context.sensitivity == NewlineSensitive
     of TreatAsSymbol:
       reader.resetPos()
       let s = parseUnquotedSymbol(format, reader)
@@ -372,7 +372,7 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
         result = RotArgument(associated: associate, term: RotTerm(kind: Block, `block`: b))
       else:
         result = RotArgument(associated: associate, term: RotTerm(kind: Phrase, phrase: p))
-      state.ended = state.context.sensitivity != IndentSensitive
+      state.ended = state.context.sensitivity == NewlineSensitive
     of TreatAsSymbol:
       reader.resetPos()
       let s = parseUnquotedSymbol(format, reader)
@@ -912,7 +912,7 @@ proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseStat
     else:
       reader.error("expected ) for enclosed phrase")
   of PhraseOpen:
-    state.ended = state.context.sensitivity != IndentSensitive
+    state.ended = state.context.sensitivity == NewlineSensitive
   exitItem(format, reader, state)
 
 proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseState, start: BlockContent) =
@@ -930,7 +930,7 @@ proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseStat
     else:
       reader.error("expected ] for enclosed phrase block")
   of BlockOpen, PhraseBlockOpen:
-    state.ended = state.context.sensitivity != IndentSensitive
+    state.ended = state.context.sensitivity == NewlineSensitive
   exitItem(format, reader, state)
 
 proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseState, start: ItemContent) {.inline.} =
