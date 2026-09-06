@@ -17,6 +17,10 @@ type
   RotPhrase* = object
     items*: seq[RotItem]
       ## has to be nonempty and first one cannot be associated but this is better for type recursion
+  RotArgument* = object
+    ## equivalent representation for phrase items, but not appropriate for streamed parsing
+    term*: RotTerm
+    associated*: seq[RotTerm]
   RotValueError* = object of CatchableError
 
 proc rotUnit*(): RotTerm {.inline.} =
@@ -59,8 +63,29 @@ proc head*(phrase: RotPhrase): lent RotTerm {.inline.} =
 proc head*(phrase: var RotPhrase): var RotTerm {.inline.} =
   phrase.items[0].term
 
-template arguments*(phrase: RotPhrase): openArray[RotItem] =
+template tail*(phrase: RotPhrase): openArray[RotItem] =
   phrase.items.toOpenArray(1, phrase.items.len - 1)
+
+iterator arguments*(phrase: RotPhrase): RotArgument =
+  var current = RotArgument(term: phrase.items[0].term)
+  for item in phrase.tail:
+    if item.associated:
+      current.associated.add item.term
+    else:
+      yield current
+      current = RotArgument(term: item.term)
+  yield current
+
+proc toArgument*(term: RotTerm, associated: varargs[RotTerm]): RotArgument {.inline.} =
+  RotArgument(term: term, associated: @associated)
+
+proc rotPhrase*(arguments: openArray[RotArgument]): RotTerm {.inline.} =
+  var items = newSeqOfCap[RotItem](arguments.len)
+  for arg in arguments:
+    items.add toItem(arg.term)
+    for associated in arg.associated:
+      items.add RotItem(associated: true, term: associated)
+  result = RotTerm(kind: Phrase, phrase: RotPhrase(items: items))
 
 proc rotBlock*(phrases: sink seq[RotPhrase]): RotTerm {.inline.} =
   result = RotTerm(kind: Block, `block`: RotBlock(phrases: phrases))
@@ -108,7 +133,7 @@ proc uglyPrint*(result: var string; a: RotTerm)
 
 proc uglyPrint*(result: var string; a: RotPhrase) {.inline.} =
   result.uglyPrint(a.head)
-  for item in a.arguments:
+  for item in a.tail:
     if item.associated:
       result.add '='
     else:

@@ -44,7 +44,7 @@ proc buildErrorMessage*(error: var RotParseError) =
 proc error*(reader: var RotReader, msg: string) =
   var err = (ref RotParseError)(
     filename: reader.filename,
-    line: reader.line, column: reader.column,
+    line: reader.state.line, column: reader.state.column,
     simpleMessage: msg)
   buildErrorMessage(err[])
   raise err
@@ -126,13 +126,13 @@ proc parseQuotedInner*(format: RotFormat, reader: var RotReader, quote: char): s
 
 proc parseQuotedText*(format: RotFormat, reader: var RotReader): string =
   const quote = '"'
-  if not reader.nextChar() or reader.current != quote:
+  if not reader.nextChar() or reader.state.current != quote:
     raise newException(RotValueError, "expected quote character for text")
   result = parseQuotedInner(format, reader, quote)
 
 proc parseQuotedSymbol*(format: RotFormat, reader: var RotReader): string =
   const quote = '`'
-  if not reader.nextChar() or reader.current != quote:
+  if not reader.nextChar() or reader.state.current != quote:
     raise newException(RotValueError, "expected quote character for symbol")
   result = parseQuotedInner(format, reader, quote)
 
@@ -147,7 +147,7 @@ type
     of OpenIndent: minIndent*: int
 
 proc startOpenRaw(format: RotFormat, reader: var RotReader): OpenStart =
-  let startIndent = reader.currentLineIndent
+  let startIndent = reader.state.currentLineIndent
   var newline = false
   var finalIndent = startIndent
   # start:
@@ -158,7 +158,7 @@ proc startOpenRaw(format: RotFormat, reader: var RotReader): OpenStart =
     of Newlines:
       newline = true
     else:
-      finalIndent = reader.currentLineIndent
+      finalIndent = reader.state.currentLineIndent
       reader.resetPos()
       break
   if newline:
@@ -170,7 +170,7 @@ proc startOpenRaw(format: RotFormat, reader: var RotReader): OpenStart =
     result = OpenStart(kind: OpenLine)
 
 proc startOpenComments(format: RotFormat, reader: var RotReader): OpenStart =
-  let startIndent = reader.currentLineIndent
+  let startIndent = reader.state.currentLineIndent
   var newline = false
   var finalIndent = startIndent
   # start:
@@ -181,7 +181,7 @@ proc startOpenComments(format: RotFormat, reader: var RotReader): OpenStart =
     of Newlines:
       newline = true
     else:
-      finalIndent = reader.currentLineIndent
+      finalIndent = reader.state.currentLineIndent
       reader.resetPos()
       break
   if newline:
@@ -314,7 +314,7 @@ proc initPhraseState*(context: WhitespaceContext): PhraseState {.inline.} =
 proc checkIndentDelim(format: RotFormat, reader: var RotReader, state: PhraseState): bool {.inline.} =
   result = state.context.sensitivity == IndentSensitive and
     state.currentlySensitive and # XXX never false for indent sensitive
-    reader.currentLineIndent < state.context.minIndent
+    reader.state.currentLineIndent < state.context.minIndent
 
 proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseState, start: char): RotItem =
   ## mirrored with `ItemContent` code below
@@ -386,7 +386,7 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
         # skips newlines too
         start2 = ch2
         break
-    if reader.done:
+    if reader.state.done:
       reader.error("expected rhs for association, got end of file")
     state.allowAssociation = false
     let right = parseItemInner(format, reader, state, start2)
@@ -394,16 +394,16 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
     result = RotItem(associated: true, term: right.term)
   of '"':
     let s = parseQuotedInner(format, reader, start)
-    assert reader.current == start
+    assert reader.state.current == start
     result = RotItem(associated: false, term: RotTerm(kind: Text, text: s))
   of '`':
     let s = parseQuotedInner(format, reader, start)
-    assert reader.current == start
+    assert reader.state.current == start
     result = RotItem(associated: false, term: RotTerm(kind: Symbol, symbol: s))
   of '(':
     let p = parsePhrase(format, reader, FreeContext)
     let gotNext = reader.nextChar()
-    if gotNext and reader.current == ')':
+    if gotNext and reader.state.current == ')':
       discard
     else:
       reader.error("expected ) for enclosed phrase")
@@ -414,7 +414,7 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
   of '{':
     let b = parseBlock(format, reader)
     let gotNext = reader.nextChar()
-    if gotNext and reader.current == '}':
+    if gotNext and reader.state.current == '}':
       discard
     else:
       reader.error("expected } for enclosed block")
@@ -426,7 +426,7 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
     of EnableFeature:
       let p = parsePhrase(format, reader, FreeContext)
       let gotNext = reader.nextChar()
-      if gotNext and reader.current == ']':
+      if gotNext and reader.state.current == ']':
         discard
       else:
         reader.error("expected ] for enclosed block")
@@ -532,7 +532,7 @@ proc findItem*(format: RotFormat, reader: var RotReader, state: var PhraseState)
 proc parseItem*(format: RotFormat, reader: var RotReader, state: var PhraseState): RotItem =
   if not reader.nextChar():
     raise newException(RotValueError, "expected phrase item")
-  result = parseFullItemInner(format, reader, state, reader.current)
+  result = parseFullItemInner(format, reader, state, reader.state.current)
 
 iterator parsePhraseItems*(format: RotFormat, reader: var RotReader, context: WhitespaceContext): RotItem =
   when true:
@@ -581,7 +581,7 @@ template checkBlockPhrase(format: RotFormat, reader: var RotReader, ch: char, co
   of Whitespace - Newlines:
     if format.inlineSpace == TreatAsSymbolStart and not
         # inline whitespace ignored if part of indent
-        (context.sensitivity == IndentSensitive and reader.currentLineIndent <= context.minIndent):
+        (context.sensitivity == IndentSensitive and reader.state.currentLineIndent <= context.minIndent):
       onPhrase()
   of Newlines:
     case context.sensitivity
@@ -596,12 +596,12 @@ template checkBlockPhrase(format: RotFormat, reader: var RotReader, ch: char, co
       discard
   of ';':
     if context.sensitivity == IndentSensitive and
-        reader.currentLineIndent < context.minIndent:
+        reader.state.currentLineIndent < context.minIndent:
       reader.resetPos()
       break
   else:
     if context.sensitivity == IndentSensitive and
-        reader.currentLineIndent < context.minIndent:
+        reader.state.currentLineIndent < context.minIndent:
       reader.resetPos()
       break
     else:
@@ -644,8 +644,8 @@ proc parseBlock*(format: RotFormat, reader: var RotReader, context: WhitespaceCo
 
 proc parseFullBlock*(format: RotFormat, reader: var RotReader): RotBlock =
   result = parseBlock(format, reader)
-  if not reader.done:
-    reader.error("block finished before input: " & $reader.current)
+  if not reader.state.done:
+    reader.error("block finished before input: " & $reader.state.current)
 
 type
   SymbolKind* = enum
@@ -777,7 +777,7 @@ proc parseItemStartInner(format: RotFormat, reader: var RotReader, allowAssociat
         # skips newlines too
         start2 = ch2
         break
-    if reader.done:
+    if reader.state.done:
       reader.error("expected rhs for association, got end of file")
     result = parseItemStartInner(format, reader, allowAssociation = false, context, start2)
     assert not result.associated
@@ -816,7 +816,7 @@ proc startItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
 proc startItem*(format: RotFormat, reader: var RotReader, state: var PhraseState): ItemContent =
   if not reader.nextChar():
     reader.error("expected phrase item start")
-  result = startItemInner(format, reader, state, reader.current)
+  result = startItemInner(format, reader, state, reader.state.current)
 
 # XXX maybe allow iterating over symbol/text characters too
 
@@ -907,7 +907,7 @@ proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseStat
   case start.kind
   of PhraseClosed:
     let gotNext = reader.nextChar()
-    if gotNext and reader.current == ')':
+    if gotNext and reader.state.current == ')':
       discard
     else:
       reader.error("expected ) for enclosed phrase")
@@ -919,13 +919,13 @@ proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseStat
   case start.kind
   of BlockClosed:
     let gotNext = reader.nextChar()
-    if gotNext and reader.current == '}':
+    if gotNext and reader.state.current == '}':
       discard
     else:
       reader.error("expected } for enclosed block")
   of PhraseBlockClosed:
     let gotNext = reader.nextChar()
-    if gotNext and reader.current == ']':
+    if gotNext and reader.state.current == ']':
       discard
     else:
       reader.error("expected ] for enclosed phrase block")
