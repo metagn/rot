@@ -9,13 +9,13 @@ type
     of Phrase: phrase*: RotPhrase
     of Block: `block`*: RotBlock
   RotBlock* = object
-    items*: seq[RotPhrase]
-  RotArgument* = object
+    phrases*: seq[RotPhrase]
+  RotItem* = object
     associated*: bool
       ## associated with the last term (i.e. is `= <term>`)
     term*: RotTerm
   RotPhrase* = object
-    items*: seq[RotArgument]
+    items*: seq[RotItem]
       ## has to be nonempty and first one cannot be associated but this is better for type recursion
   RotValueError* = object of CatchableError
 
@@ -33,24 +33,24 @@ type RotAssociated* = distinct RotTerm
 proc associated*(a: sink RotTerm): RotAssociated {.inline.} =
   result = RotAssociated(a)
 
-proc toArgument*(a: sink RotTerm): RotArgument {.inline.} =
-  result = RotArgument(associated: false, term: a)
+proc toItem*(a: sink RotTerm): RotItem {.inline.} =
+  result = RotItem(associated: false, term: a)
 
-proc toArgument*(a: sink RotAssociated): RotArgument {.inline.} =
-  result = RotArgument(associated: true, term: RotTerm(a))
+proc toItem*(a: sink RotAssociated): RotItem {.inline.} =
+  result = RotItem(associated: true, term: RotTerm(a))
 
-proc rotPhrase*(head: sink RotTerm, tail: varargs[RotArgument, toArgument]): RotTerm {.inline.} =
+proc rotPhrase*(head: sink RotTerm, tail: varargs[RotItem, toItem]): RotTerm {.inline.} =
   var phrase = RotPhrase()
   newSeq(phrase.items, tail.len + 1)
-  phrase.items[0] = toArgument(head)
+  phrase.items[0] = toItem(head)
   for i in 0 ..< tail.len:
     phrase.items[i + 1] = tail[i]
   result = RotTerm(kind: Phrase, phrase: phrase)
 
 proc rotPhrase*(terms: openArray[RotTerm]): RotTerm {.inline.} =
-  var items = newSeqOfCap[RotArgument](terms.len)
+  var items = newSeqOfCap[RotItem](terms.len)
   for term in terms:
-    items.add toArgument(term)
+    items.add toItem(term)
   result = RotTerm(kind: Phrase, phrase: RotPhrase(items: items))
 
 proc head*(phrase: RotPhrase): lent RotTerm {.inline.} =
@@ -59,11 +59,11 @@ proc head*(phrase: RotPhrase): lent RotTerm {.inline.} =
 proc head*(phrase: var RotPhrase): var RotTerm {.inline.} =
   phrase.items[0].term
 
-template arguments*(phrase: RotPhrase): openArray[RotArgument] =
+template arguments*(phrase: RotPhrase): openArray[RotItem] =
   phrase.items.toOpenArray(1, phrase.items.len - 1)
 
-proc rotBlock*(items: sink seq[RotPhrase]): RotTerm {.inline.} =
-  result = RotTerm(kind: Block, `block`: RotBlock(items: items))
+proc rotBlock*(phrases: sink seq[RotPhrase]): RotTerm {.inline.} =
+  result = RotTerm(kind: Block, `block`: RotBlock(phrases: phrases))
 
 proc rotBlock*(items: varargs[RotPhrase]): RotTerm {.inline.} =
   rotBlock(@items)
@@ -77,7 +77,7 @@ proc `==`*(a, b: RotTerm): bool {.noSideEffect.} =
   of Phrase:
     result = a.phrase.items == b.phrase.items
   of Block:
-    result = a.block.items == b.block.items
+    result = a.block.phrases == b.block.phrases
 
 proc addRotQuoted*(result: var string, s: string) =
   result.add '"'
@@ -116,7 +116,7 @@ proc uglyPrint*(result: var string; a: RotPhrase) {.inline.} =
     result.uglyPrint(item.term)
 
 proc uglyPrint*(result: var string; a: RotBlock) {.inline.} =
-  for i, phrase in a.items:
+  for i, phrase in a.phrases:
     if i != 0: result.add ';'
     result.uglyPrint(phrase)
 

@@ -9,18 +9,18 @@ proc a*(a: RotTerm): RotAssociated =
 proc a*(a, b: RotTerm): RotTerm =
   result = rotPhrase(a, associated(b))
 
-proc p*(args: varargs[RotArgument, toArgument]): RotTerm =
+proc p*(args: varargs[RotItem, toItem]): RotTerm =
   result = RotTerm(kind: Phrase, phrase: RotPhrase(items: @[]))
   for a in args:
     result.phrase.items.add a
 
 proc b*(args: varargs[RotTerm]): RotTerm =
-  result = RotTerm(kind: Block, `block`: RotBlock(items: @[]))
+  result = RotTerm(kind: Block, `block`: RotBlock(phrases: @[]))
   for a in args:
     if a.kind == Phrase:
-      result.block.items.add a.phrase
+      result.block.phrases.add a.phrase
     else:
-      result.block.items.add RotPhrase(items: @[toArgument(a)])
+      result.block.phrases.add RotPhrase(items: @[toItem(a)])
 
 template match*(s: string, b: RotTerm) =
   checkpoint s

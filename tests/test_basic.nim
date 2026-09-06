@@ -575,7 +575,7 @@ test "ugly print equivalence":
     let uglyPrinted = uglyPrint(RotTerm(kind: Block, `block`: parsed))
     checkpoint uglyPrinted
     let parsedAgain = parseRot(uglyPrinted)
-    check parsedAgain.items.len == 1
-    check parsedAgain.items[0].items.len == 1
-    check parsedAgain.items[0].items[0].term.kind == Block
-    check parsedAgain.items[0].items[0].term.block == parsed
+    check parsedAgain.phrases.len == 1
+    check parsedAgain.phrases[0].items.len == 1
+    check parsedAgain.phrases[0].items[0].term.kind == Block
+    check parsedAgain.phrases[0].items[0].term.block == parsed

@@ -62,4 +62,4 @@ j = "k"
   check not format.findPhrase(reader, blockState)
 
   let fullParsed = parseRot(s)
-  check phrases == fullParsed.items
+  check phrases == fullParsed.phrases
