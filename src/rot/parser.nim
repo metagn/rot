@@ -32,22 +32,31 @@ proc defaultRotFormat*(): RotFormat =
 
 proc buildErrorMessage*(error: var RotParseError) =
   error.msg = ""
-  if error.filename.len != 0:
-    error.msg.add(error.filename)
-  error.msg.add('(')
-  error.msg.addInt(error.line)
-  error.msg.add(", ")
-  error.msg.addInt(error.column)
-  error.msg.add(") ")
+  when not rotDisableLineColumn:
+    if error.filename.len != 0:
+      error.msg.add(error.filename)
+    error.msg.add('(')
+    error.msg.addInt(error.line)
+    error.msg.add(", ")
+    error.msg.addInt(error.column)
+    error.msg.add(") ")
+  else:
+    if error.filename.len != 0:
+      error.msg.add(error.filename)
+      error.msg.add(": ")
   error.msg.add(error.simpleMessage)
 
 proc error*(reader: var RotReader, msg: string) =
-  var err = (ref RotParseError)(
+  var err = RotParseError(
     filename: reader.filename,
-    line: reader.state.line, column: reader.state.column,
     simpleMessage: msg)
-  buildErrorMessage(err[])
-  raise err
+  when not rotDisableLineColumn:
+    err.line = reader.state.line
+    err.column = reader.state.column
+  buildErrorMessage(err)
+  var errRef = new(RotParseError)
+  errRef[] = err
+  raise errRef
 
 # actual reader behavior:
 

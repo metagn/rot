@@ -1,12 +1,18 @@
 import fleu/load_buffer, std/strutils
 
+const rotDisableLineColumn* {.booldefine.} = false
+  ## disables line/column tracking, lowers reader size but shouldn't affect speed otherwise
+
+# maybe disable indents too but at that point might as well write a separate parser
+
 type
   RotReadState* = object
     done*: bool
     current*: char
     recordLineIndent*: bool
     pos*: int
-    line*, column*: int
+    when not rotDisableLineColumn:
+      line*, column*: int
     currentLineIndent*: int
   RotReader* = object
     buffer*: LoadBuffer
@@ -15,12 +21,13 @@ type
     state*: RotReadState
 
 proc initReadState*(): RotReadState {.inline.} =
-  RotReadState(done: false,
+  result = RotReadState(done: false,
     pos: 0,
-    line: 1,
-    column: 0,
     recordLineIndent: false,
     currentLineIndent: 0)
+  when not rotDisableLineColumn:
+    result.line = 1
+    result.column = 0
 
 when false:
   proc saveState*(reader: var RotReader): RotReadState {.inline.} =
@@ -124,15 +131,17 @@ proc advance(reader: var RotReader, c: char) =
           (dec reader.state.pos; true))):
     reader.state.recordLineIndent = true
     reader.state.currentLineIndent = 0
-    reader.state.line += 1
-    reader.state.column = 0
+    when not rotDisableLineColumn:
+      reader.state.line += 1
+      reader.state.column = 0
   else:
     if reader.state.recordLineIndent:
       if c in Whitespace:
         inc reader.state.currentLineIndent
       else:
         reader.state.recordLineIndent = false
-    reader.state.column += 1
+    when not rotDisableLineColumn:
+      reader.state.column += 1
   #let saved =
   #  if reader.peekStart >= 0: reader.peekStart
   #  else: reader.state.previousPos
