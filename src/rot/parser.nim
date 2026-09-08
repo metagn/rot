@@ -51,9 +51,9 @@ proc error*(reader: var RotReader, msg: string) =
 
 # actual reader behavior:
 
-iterator charsHandleComments*(format: RotFormat, reader: var RotReader, skipFirst: static bool = true): char =
+iterator charsHandleComments*(format: RotFormat, reader: var RotReader): char =
   var comment = false
-  for ch in reader.rawChars(skipFirst):
+  for ch in reader.rawChars:
     case ch
     of '#':
       case format.comment
@@ -100,7 +100,6 @@ proc parseUnquotedSymbol*(format: RotFormat, reader: var RotReader): string =
   var concat = ""
   for ch in reader.rawChars:
     if ch in disallowedChars:
-      reader.resetPos()
       return
     elif ch in concatChars:
       concat.add ch
@@ -112,29 +111,33 @@ proc parseUnquotedSymbol*(format: RotFormat, reader: var RotReader): string =
 
 proc parseQuotedInner*(format: RotFormat, reader: var RotReader, quote: char): string =
   result = ""
+  var lastWasQuote = false
   for ch in reader.rawChars:
-    if ch == quote:
-      if reader.peekCharOrZero() == quote:
-        let gotNext = reader.nextChar()
-        assert gotNext
-        result.add(quote)
+    if lastWasQuote:
+      if ch == quote:
+        result.add ch
+        lastWasQuote = false
       else:
         return
+    elif ch == quote:
+      lastWasQuote = true
     else:
-      result.add(ch)
-  reader.error("expected closing quote for " & $quote)
+      result.add ch
+  if not lastWasQuote:
+    reader.error("expected closing quote for " & $quote)
+
+const TextQuote* = '"'
+const SymbolQuote* = '`'
 
 proc parseQuotedText*(format: RotFormat, reader: var RotReader): string =
-  const quote = '"'
-  if not reader.nextChar() or reader.state.current != quote:
+  if not reader.nextChar() or reader.state.current != TextQuote:
     raise newException(RotValueError, "expected quote character for text")
-  result = parseQuotedInner(format, reader, quote)
+  result = parseQuotedInner(format, reader, TextQuote)
 
 proc parseQuotedSymbol*(format: RotFormat, reader: var RotReader): string =
-  const quote = '`'
-  if not reader.nextChar() or reader.state.current != quote:
+  if not reader.nextChar() or reader.state.current != SymbolQuote:
     raise newException(RotValueError, "expected quote character for symbol")
-  result = parseQuotedInner(format, reader, quote)
+  result = parseQuotedInner(format, reader, SymbolQuote)
 
 type
   OpenKind* = enum
@@ -159,7 +162,6 @@ proc startOpenRaw(format: RotFormat, reader: var RotReader): OpenStart =
       newline = true
     else:
       finalIndent = reader.state.currentLineIndent
-      reader.resetPos()
       break
   if newline:
     if finalIndent <= startIndent:
@@ -182,7 +184,6 @@ proc startOpenComments(format: RotFormat, reader: var RotReader): OpenStart =
       newline = true
     else:
       finalIndent = reader.state.currentLineIndent
-      reader.resetPos()
       break
   if newline:
     if finalIndent <= startIndent:
@@ -224,7 +225,6 @@ proc parseIndentedString(reader: var RotReader, minIndent: int): string =
       if indent >= minIndent:
         addInLine(ch)
       else:
-        reader.resetPos()
         return
       recordIndent = false
   result.add(currentLine)
@@ -234,7 +234,7 @@ proc parseLineString(reader: var RotReader): string =
   for ch in reader.rawChars:
     case ch
     of Newlines:
-      reader.resetPos() # don't consume newline
+      # don't consume newline
       return
     else:
       result.add(ch)
@@ -322,20 +322,18 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
   of ':':
     case format.colon
     of DisableFeature:
+      reader.advance()
       reader.error("colon syntax disabled")
     of EnableFeature:
+      reader.advance()
       if state.context.sensitivity == Freeform: # and format.newline == EnableDelimiter
         reader.error("colon syntax not allowed outside of block context")
       let colonBlock = reader.peekCharOrZero() == ':'
-      if colonBlock:
-        let gotNext = reader.nextChar()
-        assert gotNext
+      if colonBlock: reader.advance()
       let associate = reader.peekCharOrZero() == '='
       if associate:
-        if state.allowAssociation:
-          let gotNext = reader.nextChar()
-          assert gotNext
-        else:
+        reader.advance()
+        if not state.allowAssociation:
           reader.error("expected lhs for colon association")
       if colonBlock:
         let b = parseColonBlockInner(format, reader)
@@ -345,26 +343,23 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
         result = RotItem(associated: associate, term: RotTerm(kind: Text, text: s))
       state.ended = state.context.sensitivity == NewlineSensitive
     of TreatAsSymbol:
-      reader.resetPos()
       let s = parseUnquotedSymbol(format, reader)
       result = RotItem(associated: false, term: RotTerm(kind: Symbol, symbol: s))
   of '|':
     case format.colon
     of DisableFeature:
+      reader.advance()
       reader.error("pipe syntax disabled")
     of EnableFeature:
+      reader.advance()
       if state.context.sensitivity == Freeform: # and format.newline == EnableDelimiter
         reader.error("pipe syntax not allowed outside of block context")
       let pipeBlock = reader.peekCharOrZero() == '|'
-      if pipeBlock:
-        let gotNext = reader.nextChar()
-        assert gotNext
+      if pipeBlock: reader.advance()
       let associate = reader.peekCharOrZero() == '='
       if associate:
-        if state.allowAssociation:
-          let gotNext = reader.nextChar()
-          assert gotNext
-        else:
+        reader.advance()
+        if not state.allowAssociation:
           reader.error("expected lhs for pipe association")
       let p = parsePipeInner(format, reader)
       if pipeBlock:
@@ -374,10 +369,10 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
         result = RotItem(associated: associate, term: RotTerm(kind: Phrase, phrase: p))
       state.ended = state.context.sensitivity == NewlineSensitive
     of TreatAsSymbol:
-      reader.resetPos()
       let s = parseUnquotedSymbol(format, reader)
       result = RotItem(associated: false, term: RotTerm(kind: Symbol, symbol: s))
   of '=':
+    reader.advance()
     if not state.allowAssociation:
       reader.error("expected lhs for association")
     var start2: char
@@ -393,14 +388,15 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
     assert not right.associated
     result = RotItem(associated: true, term: right.term)
   of '"':
+    reader.advance()
     let s = parseQuotedInner(format, reader, start)
-    assert reader.state.current == start
     result = RotItem(associated: false, term: RotTerm(kind: Text, text: s))
   of '`':
+    reader.advance()
     let s = parseQuotedInner(format, reader, start)
-    assert reader.state.current == start
     result = RotItem(associated: false, term: RotTerm(kind: Symbol, symbol: s))
   of '(':
+    reader.advance()
     let p = parsePhrase(format, reader, FreeContext)
     let gotNext = reader.nextChar()
     if gotNext and reader.state.current == ')':
@@ -412,6 +408,7 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
     else:
       result = RotItem(associated: false, term: RotTerm(kind: Phrase, phrase: p))
   of '{':
+    reader.advance()
     let b = parseBlock(format, reader)
     let gotNext = reader.nextChar()
     if gotNext and reader.state.current == '}':
@@ -422,8 +419,10 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
   of '[':
     case format.bracket
     of DisableFeature:
+      reader.advance()
       reader.error("bracket syntax disabled")
     of EnableFeature:
+      reader.advance()
       let p = parsePhrase(format, reader, FreeContext)
       let gotNext = reader.nextChar()
       if gotNext and reader.state.current == ']':
@@ -433,14 +432,13 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
       let b = phraseToBlock(p)
       result = RotItem(associated: false, term: RotTerm(kind: Block, `block`: b))
     of TreatAsSymbol:
-      reader.resetPos()
       let s = parseUnquotedSymbol(format, reader)
       result = RotItem(associated: false, term: RotTerm(kind: Symbol, symbol: s))
   else:
     if start in format.symbolDisallowedChars:
+      reader.advance()
       reader.error("expected phrase term, got " & $start)
     else:
-      reader.resetPos()
       let s = parseUnquotedSymbol(format, reader)
       result = RotItem(associated: false, term: RotTerm(kind: Symbol, symbol: s))
 
@@ -461,63 +459,6 @@ proc parseFullItemInner(format: RotFormat, reader: var RotReader, state: var Phr
   result = parseItemInner(format, reader, state, start)
   exitItem(format, reader, state)
 
-template checkPhraseItem(format: RotFormat, reader: var RotReader, ch: char, state: var PhraseState, onItem: untyped) =
-  case ch
-  of ',':
-    if checkIndentDelim(format, reader, state):
-      reader.resetPos()
-      break
-    else:
-      if state.context.sensitivity == NewlineSensitive:
-        # maybe also allow breaking indent sensitivity, but this would have to track if a newline was encountered
-        state.currentlySensitive = false
-      state.expectingItem = true
-      state.allowAssociation = false
-  of ';':
-    reader.resetPos() # don't consume semicolon
-    break
-  of Whitespace - Newlines:
-    if format.inlineSpace == TreatAsSymbolStart:
-      if checkIndentDelim(format, reader, state):
-        reader.resetPos()
-        break
-      else:
-        onItem()
-  of Newlines:
-    case format.newline
-    of TreatAsSymbolStart:
-      if checkIndentDelim(format, reader, state):
-        reader.resetPos()
-        break
-      else:
-        onItem()
-    of EnableDelimiter:
-      if state.context.sensitivity == NewlineSensitive and state.currentlySensitive:
-        reader.resetPos() # don't consume newline
-        break
-    else: discard
-  of ')', '}':
-    # other context
-    reader.resetPos()
-    break
-  of ']':
-    if format.bracket == TreatAsSymbol:
-      if checkIndentDelim(format, reader, state):
-        reader.resetPos()
-        break
-      else:
-        onItem()
-    else:
-      # other context
-      reader.resetPos()
-      break
-  else:
-    if checkIndentDelim(format, reader, state):
-      reader.resetPos()
-      break
-    else:
-      onItem()
-
 proc findItem*(format: RotFormat, reader: var RotReader, state: var PhraseState): bool =
   ## moves through reader looking for phrase item, false if phrase ended
   if state.ended:
@@ -525,33 +466,66 @@ proc findItem*(format: RotFormat, reader: var RotReader, state: var PhraseState)
   result = false
   for ch in format.charsHandleComments(reader):
     template foundItem() =
-      reader.resetPos()
       return true
-    checkPhraseItem(format, reader, ch, state, foundItem)
+    case ch
+    of ',':
+      if checkIndentDelim(format, reader, state):
+        break
+      else:
+        if state.context.sensitivity == NewlineSensitive:
+          # maybe also allow breaking indent sensitivity, but this would have to track if a newline was encountered
+          state.currentlySensitive = false
+        state.expectingItem = true
+        state.allowAssociation = false
+    of ';':
+      # don't consume semicolon
+      break
+    of Whitespace - Newlines:
+      if format.inlineSpace == TreatAsSymbolStart:
+        if checkIndentDelim(format, reader, state):
+          break
+        else:
+          foundItem()
+    of Newlines:
+      case format.newline
+      of TreatAsSymbolStart:
+        if checkIndentDelim(format, reader, state):
+          break
+        else:
+          foundItem()
+      of EnableDelimiter:
+        if state.context.sensitivity == NewlineSensitive and state.currentlySensitive:
+          # don't consume newline
+          break
+      else: discard
+    of ')', '}':
+      # other context
+      break
+    of ']':
+      if format.bracket == TreatAsSymbol:
+        if checkIndentDelim(format, reader, state):
+          break
+        else:
+          foundItem()
+      else:
+        # other context
+        break
+    else:
+      if checkIndentDelim(format, reader, state):
+        break
+      else:
+        foundItem()
 
 proc parseItem*(format: RotFormat, reader: var RotReader, state: var PhraseState): RotItem =
-  if not reader.nextChar():
+  var c: char
+  if not reader.peekChar(c):
     raise newException(RotValueError, "expected phrase item")
-  result = parseFullItemInner(format, reader, state, reader.state.current)
+  result = parseFullItemInner(format, reader, state, c)
 
 iterator parsePhraseItems*(format: RotFormat, reader: var RotReader, context: WhitespaceContext): RotItem =
-  when true:
-    var state = initPhraseState(context)
-    for ch in format.charsHandleComments(reader):
-      var gotItem = false
-      var item: RotItem
-      template onItem() =
-        gotItem = true
-        item = parseFullItemInner(format, reader, state, ch)
-      checkPhraseItem(format, reader, ch, state, onItem)
-      if gotItem:
-        yield item
-      if state.ended:
-        break
-  else:
-    var state = initPhraseState(context)
-    while format.findItem(reader, state):
-      yield format.parseItem(reader, state)
+  var state = initPhraseState(context)
+  while format.findItem(reader, state):
+    yield format.parseItem(reader, state)
 
 proc parsePhrase*(format: RotFormat, reader: var RotReader, context: WhitespaceContext): RotPhrase =
   result = RotPhrase(items: @[])
@@ -565,48 +539,6 @@ type BlockState* = object
 proc initBlockState*(context: WhitespaceContext): BlockState =
   BlockState(context: context)
 
-template checkBlockPhrase(format: RotFormat, reader: var RotReader, ch: char, context: WhitespaceContext, onPhrase: untyped) =
-  case ch
-  of ')', '}':
-    # other context
-    reader.resetPos()
-    break
-  of ']':
-    if format.bracket == TreatAsSymbol:
-      onPhrase()
-    else:
-      # other context
-      reader.resetPos()
-      break
-  of Whitespace - Newlines:
-    if format.inlineSpace == TreatAsSymbolStart and not
-        # inline whitespace ignored if part of indent
-        (context.sensitivity == IndentSensitive and reader.state.currentLineIndent <= context.minIndent):
-      onPhrase()
-  of Newlines:
-    case context.sensitivity
-    of Freeform:
-      if format.newline == TreatAsSymbolStart:
-        onPhrase()
-    of NewlineSensitive:
-      reader.resetPos()
-      break
-    of IndentSensitive:
-      # default newline behavior necessary for indent sensitivity to function
-      discard
-  of ';':
-    if context.sensitivity == IndentSensitive and
-        reader.state.currentLineIndent < context.minIndent:
-      reader.resetPos()
-      break
-  else:
-    if context.sensitivity == IndentSensitive and
-        reader.state.currentLineIndent < context.minIndent:
-      reader.resetPos()
-      break
-    else:
-      onPhrase()
-
 proc findPhrase*(format: RotFormat, reader: var RotReader, state: BlockState): bool =
   ## moves through reader looking for block phrase, false if phrase ended
   if state.ended:
@@ -614,9 +546,42 @@ proc findPhrase*(format: RotFormat, reader: var RotReader, state: BlockState): b
   result = false
   for ch in format.charsHandleComments(reader):
     template foundItem() =
-      reader.resetPos()
       return true
-    checkBlockPhrase(format, reader, ch, state.context, foundItem)
+    case ch
+    of ')', '}':
+      # other context
+      break
+    of ']':
+      if format.bracket == TreatAsSymbol:
+        foundItem()
+      else:
+        # other context
+        break
+    of Whitespace - Newlines:
+      if format.inlineSpace == TreatAsSymbolStart and not
+          # inline whitespace ignored if part of indent
+          (state.context.sensitivity == IndentSensitive and reader.state.currentLineIndent <= state.context.minIndent):
+        foundItem()
+    of Newlines:
+      case state.context.sensitivity
+      of Freeform:
+        if format.newline == TreatAsSymbolStart:
+          foundItem()
+      of NewlineSensitive:
+        break
+      of IndentSensitive:
+        # default newline behavior necessary for indent sensitivity to function
+        discard
+    of ';':
+      if state.context.sensitivity == IndentSensitive and
+          reader.state.currentLineIndent < state.context.minIndent:
+        break
+    else:
+      if state.context.sensitivity == IndentSensitive and
+          reader.state.currentLineIndent < state.context.minIndent:
+        break
+      else:
+        foundItem()
 
 proc findPhrase*(format: RotFormat, reader: var RotReader, context: WhitespaceContext): bool =
   var state = initBlockState(context)
@@ -634,18 +599,14 @@ iterator parseBlockPhrases*(format: RotFormat, reader: var RotReader, context: W
 
 proc parseBlock*(format: RotFormat, reader: var RotReader, context: WhitespaceContext = FreeContext): RotBlock =
   result = RotBlock(phrases: @[])
-  for ch in format.charsHandleComments(reader):
-    template onPhraseStart() =
-      reader.resetPos()
-      let phrase = parsePhrase(format, reader, LineContext)
-      assert phrase.items.len != 0
-      result.phrases.add phrase
-    checkBlockPhrase(format, reader, ch, context, onPhraseStart)
+  for phrase in parseBlockPhrases(format, reader, context):
+    result.phrases.add phrase
 
 proc parseFullBlock*(format: RotFormat, reader: var RotReader): RotBlock =
   result = parseBlock(format, reader)
-  if not reader.state.done:
-    reader.error("block finished before input: " & $reader.state.current)
+  var c: char
+  if reader.peekChar(c):
+    reader.error("block finished before input: " & $c)
 
 type
   SymbolKind* = enum
@@ -696,20 +657,18 @@ proc parseItemStartInner(format: RotFormat, reader: var RotReader, allowAssociat
   of ':':
     case format.colon
     of DisableFeature:
+      reader.advance()
       reader.error("colon syntax disabled")
     of EnableFeature:
+      reader.advance()
       if context.sensitivity == Freeform: # and format.newline == EnableDelimiter
         reader.error("colon syntax not allowed outside of block context")
       let colonBlock = reader.peekCharOrZero() == ':'
-      if colonBlock:
-        let gotNext = reader.nextChar()
-        assert gotNext
+      if colonBlock: reader.advance()
       let associate = reader.peekCharOrZero() == '='
       if associate:
-        if allowAssociation:
-          let gotNext = reader.nextChar()
-          assert gotNext
-        else:
+        reader.advance()
+        if not allowAssociation:
           reader.error("expected lhs for colon association")
       if colonBlock:
         let open = startOpenComments(format, reader)
@@ -729,25 +688,22 @@ proc parseItemStartInner(format: RotFormat, reader: var RotReader, allowAssociat
           text: TextContent(kind: TextOpen, open: open))
       #state.ended = context.sensitivity != IndentSensitive
     of TreatAsSymbol:
-      reader.resetPos()
       result = ItemContent(associated: false, kind: Symbol, symbol: SymbolContent(kind: SymbolUnquoted))
   of '|':
     case format.colon
     of DisableFeature:
+      reader.advance()
       reader.error("pipe syntax disabled")
     of EnableFeature:
+      reader.advance()
       if context.sensitivity == Freeform: # and format.newline == EnableDelimiter
         reader.error("pipe syntax not allowed outside of block context")
       let pipeBlock = reader.peekCharOrZero() == '|'
-      if pipeBlock:
-        let gotNext = reader.nextChar()
-        assert gotNext
+      if pipeBlock: reader.advance()
       let associate = reader.peekCharOrZero() == '='
       if associate:
-        if allowAssociation:
-          let gotNext = reader.nextChar()
-          assert gotNext
-        else:
+        reader.advance()
+        if not allowAssociation:
           reader.error("expected lhs for pipe association")
       let open = startOpenComments(format, reader)
       var p: PhraseState
@@ -766,9 +722,9 @@ proc parseItemStartInner(format: RotFormat, reader: var RotReader, allowAssociat
           phrase: PhraseContent(kind: PhraseOpen, state: p))
       #state.ended = context.sensitivity != IndentSensitive
     of TreatAsSymbol:
-      reader.resetPos()
       result = ItemContent(associated: false, kind: Symbol, symbol: SymbolContent(kind: SymbolUnquoted))
   of '=':
+    reader.advance()
     if not allowAssociation:
       reader.error("expected lhs for association")
     var start2: char
@@ -783,30 +739,35 @@ proc parseItemStartInner(format: RotFormat, reader: var RotReader, allowAssociat
     assert not result.associated
     result.associated = true
   of '"':
+    reader.advance()
     result = ItemContent(associated: false, kind: Text, text: TextContent(kind: TextQuoted))
   of '`':
+    reader.advance()
     result = ItemContent(associated: false, kind: Symbol, symbol: SymbolContent(kind: SymbolQuoted))
   of '(':
+    reader.advance()
     let p = initPhraseState(FreeContext)
     result = ItemContent(associated: false, kind: Phrase, phrase: PhraseContent(kind: PhraseClosed, state: p))
   of '{':
+    reader.advance()
     let b = initBlockState(FreeContext)
     result = ItemContent(associated: false, kind: Block, `block`: BlockContent(kind: BlockClosed, blockState: b))
   of '[':
     case format.bracket
     of DisableFeature:
+      reader.advance()
       reader.error("bracket syntax disabled")
     of EnableFeature:
+      reader.advance()
       let p = initPhraseState(FreeContext)
       result = ItemContent(associated: false, kind: Block, `block`: BlockContent(kind: PhraseBlockClosed, phraseBlockState: p))
     of TreatAsSymbol:
-      reader.resetPos()
       result = ItemContent(associated: false, kind: Symbol, symbol: SymbolContent(kind: SymbolUnquoted))
   else:
     if start in format.symbolDisallowedChars:
+      reader.advance()
       reader.error("expected phrase term, got " & $start)
     else:
-      reader.resetPos()
       result = ItemContent(associated: false, kind: Symbol, symbol: SymbolContent(kind: SymbolUnquoted))
 
 proc startItemInner(format: RotFormat, reader: var RotReader, state: var PhraseState, start: char): ItemContent =
@@ -814,9 +775,10 @@ proc startItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
   result = parseItemStartInner(format, reader, state.allowAssociation, state.context, start)
 
 proc startItem*(format: RotFormat, reader: var RotReader, state: var PhraseState): ItemContent =
-  if not reader.nextChar():
+  var c: char
+  if not reader.peekChar(c):
     reader.error("expected phrase item start")
-  result = startItemInner(format, reader, state, reader.state.current)
+  result = startItemInner(format, reader, state, c)
 
 # XXX maybe allow iterating over symbol/text characters too
 
@@ -825,12 +787,12 @@ proc parseAllContent*(format: RotFormat, reader: var RotReader, start: var Symbo
   of SymbolUnquoted:
     result = parseUnquotedSymbol(format, reader)
   of SymbolQuoted:
-    result = parseQuotedSymbol(format, reader)
+    result = parseQuotedInner(format, reader, SymbolQuote)
 
 proc parseAllContent*(format: RotFormat, reader: var RotReader, start: var TextContent): string =
   case start.kind
   of TextQuoted:
-    result = parseQuotedText(format, reader)
+    result = parseQuotedInner(format, reader, TextQuote)
   of TextOpen:
     case start.open.kind
     of OpenEmpty:
