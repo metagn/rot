@@ -274,8 +274,8 @@ const
 proc indentContext*(minIndent: int): WhitespaceContext {.inline.} =
   WhitespaceContext(sensitivity: IndentSensitive, minIndent: minIndent)
 
-proc parsePhrase*(format: RotFormat, reader: var RotReader, context: WhitespaceContext): RotPhrase
-proc parseBlock*(format: RotFormat, reader: var RotReader, context: WhitespaceContext = FreeContext): RotBlock
+proc parsePhrase*(format: RotFormat, reader: var RotReader, context: WhitespaceContext): RotPhrase {.gcsafe.}
+proc parseBlock*(format: RotFormat, reader: var RotReader, context: WhitespaceContext = FreeContext): RotBlock {.gcsafe.}
 
 proc phraseToBlock*(p: RotPhrase): RotBlock =
   result = RotBlock()

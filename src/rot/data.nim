@@ -129,7 +129,7 @@ proc addRotSymbol*(result: var string, s: string) =
   else:
     result.add s
 
-proc uglyPrint*(result: var string; a: RotTerm)
+proc uglyPrint*(result: var string; a: RotTerm) {.gcsafe.}
 
 proc uglyPrint*(result: var string; a: RotPhrase) {.inline.} =
   result.uglyPrint(a.head)
