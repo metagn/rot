@@ -1,34 +1,4 @@
-import ./[data, reader], std/strutils
-
-type
-  SpecialCharacterStrategy* = enum
-    EnableFeature,
-    DisableFeature,
-    TreatAsSymbol # implies disabled
-  DelimiterStrategy* = enum
-    EnableDelimiter,
-    DisableDelimiter,
-    ConcatenateSymbol, # implies disabled
-    TreatAsSymbolStart # implies disabled
-  RotFormat* = object
-    colon*: SpecialCharacterStrategy
-    pipe*: SpecialCharacterStrategy
-    bracket*: SpecialCharacterStrategy
-    comment*: SpecialCharacterStrategy
-    inlineSpace*, newline*: DelimiterStrategy
-  RotParseError* = object of CatchableError
-    filename*: string
-    line*, column*: int
-    simpleMessage*: string
-
-proc defaultRotFormat*(): RotFormat =
-  result = RotFormat(
-    colon: EnableFeature,
-    pipe: EnableFeature,
-    bracket: EnableFeature,
-    comment: EnableFeature,
-    inlineSpace: EnableDelimiter,
-    newline: EnableDelimiter)
+import ./[common, data, reader], std/strutils
 
 proc buildErrorMessage*(error: var RotParseError) =
   error.msg = ""
@@ -77,30 +47,6 @@ iterator charsHandleComments*(format: RotFormat, reader: var RotReader): char =
     else: discard
     if not comment:
       yield ch
-
-const DefaultSymbolDisallowedChars = {',', ';', ':', '|', '=', '{', '}', '(', ')', '[', ']', '#'} + Whitespace
-
-proc symbolDisallowedChars*(format: RotFormat): set[char] =
-  result = DefaultSymbolDisallowedChars
-  if format.colon == TreatAsSymbol:
-    result.excl(':')
-  if format.pipe == TreatAsSymbol:
-    result.excl('|')
-  if format.bracket == TreatAsSymbol:
-    result.excl({'[', ']'})
-  if format.comment == TreatAsSymbol:
-    result.excl('#')
-  if format.inlineSpace == TreatAsSymbolStart:
-    result.excl(Whitespace - Newlines)
-  if format.newline == TreatAsSymbolStart:
-    result.excl(Newlines)
-
-proc symbolConcatChars*(format: RotFormat): set[char] =
-  result = {}
-  if format.inlineSpace == ConcatenateSymbol:
-    result.incl(Whitespace - Newlines)
-  if format.newline == ConcatenateSymbol:
-    result.incl(Newlines)
 
 proc parseUnquotedSymbol*(format: RotFormat, reader: var RotReader): string =
   result = ""
@@ -911,3 +857,12 @@ proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseStat
   of Text: finishItem(format, reader, state, start.text)
   of Phrase: finishItem(format, reader, state, start.phrase)
   of Block: finishItem(format, reader, state, start.block)
+
+proc startBlock*(context: WhitespaceContext = FreeContext): BlockContent {.inline.} =
+  result = BlockContent(kind: BlockOpen, blockState: initBlockState(context))
+
+proc startPhrase*(context: WhitespaceContext = LineContext): PhraseContent {.inline.} =
+  result = PhraseContent(kind: PhraseOpen, state: initPhraseState(context))
+
+proc startSymbol*(): SymbolContent {.inline.} =
+  SymbolContent(kind: SymbolUnquoted)

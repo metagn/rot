@@ -5,7 +5,7 @@ else:
 
 import rot, rot/reader, fleu/load_buffer, util, std/strutils
 
-proc lineLoader(s: string): proc(): string =
+proc lineLoader(s: string): BufferLoader =
   when nimvm:
     var lines = splitLines(s, keepEol = true)
     var i = 0
@@ -35,8 +35,8 @@ c = {
   "i"
 j = "k"
 """
-  let format = defaultRotFormat()
-  var reader = initRotReader(initLoadBuffer(lineLoader(s)))
+  let format = DefaultRotFormat
+  var reader = initRotReader(lineLoader(s))
   var blockState = initBlockState(FreeContext)
   var phrases: seq[RotPhrase] = @[]
   var phrase: RotPhrase

@@ -1,4 +1,4 @@
-import fleu/load_buffer, std/strutils
+import fleu/load_buffer, std/[strutils, streams]
 
 const rotDisableLineColumn* {.booldefine.} = false
   ## disables line/column tracking, lowers reader size but shouldn't affect speed otherwise
@@ -17,8 +17,8 @@ type
   RotReader* = object
     buffer*: LoadBuffer
     #bufferLocks*: int
-    filename*: string
     state*: RotReadState
+    filename*: string
 
 proc initReadState*(): RotReadState {.inline.} =
   result = RotReadState(done: false,
@@ -51,6 +51,19 @@ proc initRotReader*(str: sink string = "", filename = ""): RotReader =
 proc initRotReader*(loader: LoadBuffer, filename = ""): RotReader =
   result = RotReader(buffer: loader, filename: filename)
   resetReader(result)
+
+proc initRotReader*(loader: BufferLoader, bufferCapacity = 32, filename = ""): RotReader =
+  result = RotReader(buffer: initLoadBuffer(loader), filename: filename)
+  resetReader(result)
+
+proc initRotReader*(stream: Stream, loadAmount = 16, bufferCapacity = 32, filename = ""): RotReader =
+  result = RotReader(buffer: initLoadbuffer(stream, loadAmount, bufferCapacity), filename: filename)
+  resetReader(result)
+
+when declared(File):
+  proc initRotReader*(file: File, loadAmount = 16, bufferCapacity = 32, filename = ""): RotReader =
+    result = RotReader(buffer: initLoadBuffer(file, loadAmount, bufferCapacity), filename: filename)
+    resetReader(result)
 
 proc loadBufferOne(reader: var RotReader) {.inline.} =
   let remove = reader.buffer.loadOnce()
