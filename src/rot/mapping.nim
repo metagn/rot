@@ -122,6 +122,16 @@ proc into*(value: RotValue, result: var cstring) {.inline.} =
   else:
     raise newException(ValueError, "expected cstring")
 
+proc into*[T](value: openArray[T], result: var RotValue) {.gcsafe.}
+proc into*[T](value: RotValue, result: var seq[T]) {.gcsafe.}
+proc into*[I, T](value: RotValue, result: var array[I, T]) {.gcsafe.}
+proc into*[T: tuple](value: T, result: var RotValue) {.inline, gcsafe.}
+proc into*[T: tuple](value: RotValue, result: var T) {.inline, gcsafe.}
+proc into*[T: object](value: T, result: var RotValue) {.inline, gcsafe.}
+proc into*[T: object](value: RotValue, result: var T) {.inline, gcsafe.}
+proc into*[T: distinct](value: T, result: var RotValue) {.inline, gcsafe.}
+proc into*[T: distinct](value: RotValue, result: var T) {.inline, gcsafe.}
+
 proc into*[T](value: openArray[T], result: var RotValue) =
   mixin into
   var phrases = newSeq[RotPhrase](value.len)
