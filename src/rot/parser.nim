@@ -753,14 +753,14 @@ proc startItem*(format: RotFormat, reader: var RotReader, state: var PhraseState
 
 # XXX maybe allow iterating over symbol/text characters too
 
-proc parseAll*(format: RotFormat, reader: var RotReader, content: var SymbolContent): string =
+proc parseAll*(content: var SymbolContent, format: RotFormat, reader: var RotReader): string =
   case content.kind
   of SymbolUnquoted:
     result = parseUnquotedSymbol(format, reader)
   of SymbolQuoted:
     result = parseQuotedInner(format, reader, SymbolQuote)
 
-proc parseAll*(format: RotFormat, reader: var RotReader, content: var TextContent): string =
+proc parseAll*(content: var TextContent, format: RotFormat, reader: var RotReader): string =
   case content.kind
   of TextQuoted:
     result = parseQuotedInner(format, reader, TextQuote)
@@ -773,33 +773,33 @@ proc parseAll*(format: RotFormat, reader: var RotReader, content: var TextConten
     of OpenLine:
       result = parseLineString(reader)
 
-proc findPart*(format: RotFormat, reader: var RotReader, content: var PhraseContent): bool {.inline.} =
+proc findItem*(content: var PhraseContent, format: RotFormat, reader: var RotReader): bool {.inline.} =
   result = findItem(format, reader, content.state)
 
-proc startPart*(format: RotFormat, reader: var RotReader, content: var PhraseContent): ItemContent {.inline.} =
+proc startItem*(content: var PhraseContent, format: RotFormat, reader: var RotReader): ItemContent {.inline.} =
   result = startItem(format, reader, content.state)
 
-proc parsePart*(format: RotFormat, reader: var RotReader, content: var PhraseContent): RotItem =
+proc parseItem*(content: var PhraseContent, format: RotFormat, reader: var RotReader): RotItem =
   result = parseItem(format, reader, content.state)
 
-proc parseAll*(format: RotFormat, reader: var RotReader, content: var PhraseContent): RotTerm =
+proc parseAll*(content: var PhraseContent, format: RotFormat, reader: var RotReader): RotTerm =
   ## phrase or unit
   var p = RotPhrase(items: @[])
-  while findPart(format, reader, content):
-    p.items.add parsePart(format, reader, content)
+  while content.findItem(format, reader):
+    p.items.add content.parseItem(format, reader)
   if p.items.len == 0:
     result = RotTerm(kind: Unit)
   else:
     result = RotTerm(kind: Phrase, phrase: p)
 
-proc findPart*(format: RotFormat, reader: var RotReader, content: var BlockContent): bool {.inline.} =
+proc findPhrase*(content: var BlockContent, format: RotFormat, reader: var RotReader): bool {.inline.} =
   case content.kind
   of BlockOpen, BlockClosed:
     result = findPhrase(format, reader, content.blockState)
   of PhraseBlockOpen, PhraseBlockClosed:
     result = findItem(format, reader, content.phraseBlockState)
 
-proc startPart*(format: RotFormat, reader: var RotReader, content: var BlockContent): PhraseContent {.inline.} =
+proc startPhrase*(content: var BlockContent, format: RotFormat, reader: var RotReader): PhraseContent {.inline.} =
   case content.kind
   of BlockOpen, BlockClosed:
     result = startPhrase(LineContext)
@@ -809,7 +809,7 @@ proc startPart*(format: RotFormat, reader: var RotReader, content: var BlockCont
     #new(result.singleItem)
     #result.singleItem[] = startItem(format, reader, content.phraseBlockState)
 
-proc parsePart*(format: RotFormat, reader: var RotReader, content: var BlockContent): RotPhrase =
+proc parsePhrase*(content: var BlockContent, format: RotFormat, reader: var RotReader): RotPhrase =
   case content.kind
   of BlockOpen, BlockClosed:
     result = parsePhrase(format, reader, content.blockState)
@@ -820,30 +820,30 @@ proc parsePart*(format: RotFormat, reader: var RotReader, content: var BlockCont
     # for next time if it isnt an association
     result = RotPhrase(items: @[item])
 
-proc parseAll*(format: RotFormat, reader: var RotReader, content: var BlockContent): RotBlock =
+proc parseAll*(content: var BlockContent, format: RotFormat, reader: var RotReader): RotBlock =
   ## phrase or unit
   result = RotBlock(phrases: @[])
-  while findPart(format, reader, content):
-    result.phrases.add parsePart(format, reader, content)
+  while content.findPhrase(format, reader):
+    result.phrases.add content.parsePhrase(format, reader)
 
-proc parseAll*(format: RotFormat, reader: var RotReader, content: var TermContent): RotTerm =
+proc parseAll*(content: var TermContent, format: RotFormat, reader: var RotReader): RotTerm =
   case content.kind
   of Unit: discard
   of Symbol:
-    let s = parseAll(format, reader, content.symbol)
+    let s = content.symbol.parseAll(format, reader)
     result = RotTerm(kind: Symbol, symbol: s)
   of Text:
-    let t = parseAll(format, reader, content.text)
+    let t = content.text.parseAll(format, reader)
     result = RotTerm(kind: Text, text: t)
   of Phrase:
-    let p = parseAll(format, reader, content.phrase)
+    let p = content.phrase.parseAll(format, reader)
     result = p
   of Block:
-    let b = parseAll(format, reader, content.block)
+    let b = content.block.parseAll(format, reader)
     result = RotTerm(kind: Block, `block`: b)
 
-proc parseAll*(format: RotFormat, reader: var RotReader, content: var ItemContent): RotItem =
-  result = RotItem(associated: content.associated, term: parseAll(format, reader, content.term))
+proc parseAll*(content: var ItemContent, format: RotFormat, reader: var RotReader): RotItem =
+  result = RotItem(associated: content.associated, term: content.term.parseAll(format, reader))
 
 proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseState, itemContent: SymbolContent) {.inline.} =
   exitItem(format, reader, state)
@@ -892,26 +892,26 @@ proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseStat
 proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseState, itemContent: ItemContent) {.inline.} =
   finishItem(format, reader, state, itemContent.term)
 
-proc finishPart*(format: RotFormat, reader: var RotReader, content: var PhraseContent, part: ItemContent) {.inline.} =
+proc finishItem*(content: var PhraseContent, part: ItemContent, format: RotFormat, reader: var RotReader) {.inline.} =
   case content.kind
   of PhraseOpen, PhraseClosed:
     finishItem(format, reader, content.state, part)
 
-proc finishPart*(format: RotFormat, reader: var RotReader, content: var BlockContent, part: PhraseContent) {.inline.} =
+proc finishPhrase*(content: var BlockContent, part: PhraseContent, format: RotFormat, reader: var RotReader) {.inline.} =
   case content.kind
   of BlockOpen, BlockClosed:
     discard
   of PhraseBlockOpen, PhraseBlockClosed:
     discard#finishItem(format, reader, content.phraseBlockState, part.singleItem[])
 
-iterator eachPart*(format: RotFormat, reader: var RotReader, content: var PhraseContent): var ItemContent =
-  while findPart(format, reader, content):
-    var itemContent = startPart(format, reader, content)
-    yield (addr itemContent)[]
-    finishPart(format, reader, content, itemContent)
+iterator eachItem*(content: var PhraseContent, format: RotFormat, reader: var RotReader): var ItemContent =
+  while content.findItem(format, reader):
+    var item = content.startItem(format, reader)
+    yield (addr item)[]
+    content.finishItem(item, format, reader)
 
-iterator eachPart*(format: RotFormat, reader: var RotReader, content: var BlockContent): var PhraseContent =
-  while findPart(format, reader, content):
-    var itemContent = startPart(format, reader, content)
-    yield (addr itemContent)[]
-    finishPart(format, reader, content, itemContent)
+iterator eachPhrase*(content: var BlockContent, format: RotFormat, reader: var RotReader): var PhraseContent =
+  while content.findPhrase(format, reader):
+    var phrase = content.startPhrase(format, reader)
+    yield (addr phrase)[]
+    content.finishPhrase(phrase, format, reader)
