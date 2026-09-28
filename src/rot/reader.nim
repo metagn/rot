@@ -15,7 +15,7 @@ type
     currentLineIndent*: int32
   RotReader* = object
     buffer*: LoadBuffer
-    #bufferLocks*: int
+    bufferLocks*: int
     state*: RotReadState
     filename*: string
 
@@ -28,17 +28,16 @@ proc initReadState*(): RotReadState {.inline.} =
     result.line = 1
     result.column = 0
 
-when false:
-  proc saveState*(reader: var RotReader): RotReadState {.inline.} =
-    result = reader.state
-    inc reader.bufferLocks
+proc saveState*(reader: var RotReader): RotReadState {.inline.} =
+  result = reader.state
+  inc reader.bufferLocks
 
-  proc releaseState*(reader: var RotReader) {.inline.} =
-    dec reader.bufferLocks
+proc releaseState*(reader: var RotReader, state: sink RotReadState) {.inline.} =
+  dec reader.bufferLocks
 
-  proc restoreState*(reader: var RotReader, state: RotReadState) {.inline.} =
-    reader.state = state
-    releaseState(reader)
+proc restoreState*(reader: var RotReader, state: sink RotReadState) {.inline.} =
+  reader.state = state
+  dec reader.bufferLocks
 
 proc resetReader*(reader: var RotReader) {.inline.} =
   reader.state = initReadState()
@@ -155,11 +154,8 @@ proc advance(reader: var RotReader, c: char) =
         reader.state.recordLineIndent = false
     when not rotDisableLineColumn:
       reader.state.column += 1
-  #let saved =
-  #  if reader.peekStart >= 0: reader.peekStart
-  #  else: reader.state.previousPos
-  #if reader.bufferLocks == 0:
-  reader.buffer.freeBefore = prevPos
+  if reader.bufferLocks == 0:
+    reader.buffer.freeBefore = prevPos
 
 proc advance*(reader: var RotReader) {.inline.} =
   var c: char

@@ -784,7 +784,9 @@ proc findItem*(content: var PhraseContent, format: RotFormat, reader: var RotRea
 proc findAssociation*(content: var PhraseContent, format: RotFormat, reader: var RotReader): bool {.inline.} =
   var c: char
   result = findItem(format, reader, content.state) and
-    reader.peekChar(c) and c == '='
+    reader.peekChar(c) and (c == '=' or
+      (c == '|' and (reader.peekMatch("|=") or reader.peekMatch("||="))) or
+      (c == ':' and (reader.peekMatch(":=") or reader.peekMatch("::="))))
 
 proc startItem*(content: var PhraseContent, format: RotFormat, reader: var RotReader): ItemContent {.inline.} =
   result = startItem(format, reader, content.state)
