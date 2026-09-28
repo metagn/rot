@@ -121,7 +121,8 @@ test "nested parsing":
   check p1.findItem(format, reader)
   item = p1.parseItem(format, reader)
   check item == toItem s"h"
-  check p1.findItem(format, reader)
+  # use findAssociation this time:
+  check p1.findAssociation(format, reader)
   item = p1.parseItem(format, reader)
   check item == toItem a t"i"
   check not p1.findItem(format, reader)
@@ -132,7 +133,8 @@ test "nested parsing":
   check p1.findItem(format, reader)
   item = p1.parseItem(format, reader)
   check item == toItem s"j"
-  check p1.findItem(format, reader)
+  # and this time:
+  check p1.findAssociation(format, reader)
   item = p1.parseItem(format, reader)
   check item == toItem a t"k"
   check not p1.findItem(format, reader)

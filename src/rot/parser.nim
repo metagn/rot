@@ -85,12 +85,14 @@ const TextQuote* = '"'
 const SymbolQuote* = '`'
 
 proc parseQuotedText*(format: RotFormat, reader: var RotReader): string =
-  if not reader.nextChar() or reader.state.current != TextQuote:
+  var c: char
+  if not (reader.nextChar(c) and c == TextQuote):
     raise newException(RotValueError, "expected quote character for text")
   result = parseQuotedInner(format, reader, TextQuote)
 
 proc parseQuotedSymbol*(format: RotFormat, reader: var RotReader): string =
-  if not reader.nextChar() or reader.state.current != SymbolQuote:
+  var c: char
+  if not (reader.nextChar(c) and c == SymbolQuote):
     raise newException(RotValueError, "expected quote character for symbol")
   result = parseQuotedInner(format, reader, SymbolQuote)
 
@@ -353,8 +355,9 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
   of '(':
     reader.advance()
     let p = parsePhrase(format, reader, FreeContext)
-    let gotNext = reader.nextChar()
-    if gotNext and reader.state.current == ')':
+    var c: char
+    let gotNext = reader.nextChar(c)
+    if gotNext and c == ')':
       discard
     else:
       reader.error("expected ) for enclosed phrase")
@@ -365,8 +368,9 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
   of '{':
     reader.advance()
     let b = parseBlock(format, reader)
-    let gotNext = reader.nextChar()
-    if gotNext and reader.state.current == '}':
+    var c: char
+    let gotNext = reader.nextChar(c)
+    if gotNext and c == '}':
       discard
     else:
       reader.error("expected } for enclosed block")
@@ -379,8 +383,9 @@ proc parseItemInner(format: RotFormat, reader: var RotReader, state: var PhraseS
     of EnableFeature:
       reader.advance()
       let p = parsePhrase(format, reader, FreeContext)
-      let gotNext = reader.nextChar()
-      if gotNext and reader.state.current == ']':
+      var c: char
+      let gotNext = reader.nextChar(c)
+      if gotNext and c == ']':
         discard
       else:
         reader.error("expected ] for enclosed block")
@@ -776,6 +781,11 @@ proc parseAll*(content: var TextContent, format: RotFormat, reader: var RotReade
 proc findItem*(content: var PhraseContent, format: RotFormat, reader: var RotReader): bool {.inline.} =
   result = findItem(format, reader, content.state)
 
+proc findAssociation*(content: var PhraseContent, format: RotFormat, reader: var RotReader): bool {.inline.} =
+  var c: char
+  result = findItem(format, reader, content.state) and
+    reader.peekChar(c) and c == '='
+
 proc startItem*(content: var PhraseContent, format: RotFormat, reader: var RotReader): ItemContent {.inline.} =
   result = startItem(format, reader, content.state)
 
@@ -854,8 +864,9 @@ proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseStat
 proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseState, itemContent: PhraseContent) =
   case itemContent.kind
   of PhraseClosed:
-    let gotNext = reader.nextChar()
-    if gotNext and reader.state.current == ')':
+    var c: char
+    let gotNext = reader.nextChar(c)
+    if gotNext and c == ')':
       discard
     else:
       reader.error("expected ) for enclosed phrase")
@@ -866,14 +877,16 @@ proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseStat
 proc finishItem*(format: RotFormat, reader: var RotReader, state: var PhraseState, itemContent: BlockContent) =
   case itemContent.kind
   of BlockClosed:
-    let gotNext = reader.nextChar()
-    if gotNext and reader.state.current == '}':
+    var c: char
+    let gotNext = reader.nextChar(c)
+    if gotNext and c == '}':
       discard
     else:
       reader.error("expected } for enclosed block")
   of PhraseBlockClosed:
-    let gotNext = reader.nextChar()
-    if gotNext and reader.state.current == ']':
+    var c: char
+    let gotNext = reader.nextChar(c)
+    if gotNext and c == ']':
       discard
     else:
       reader.error("expected ] for enclosed phrase block")

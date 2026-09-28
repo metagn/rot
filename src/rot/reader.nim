@@ -7,13 +7,12 @@ const rotDisableLineColumn* {.booldefine.} = false
 
 type
   RotReadState* = object
-    done*: bool
-    current*: char
-    recordLineIndent*: bool
     pos*: int
+    done*: bool
+    recordLineIndent*: bool
     when not rotDisableLineColumn:
-      line*, column*: int
-    currentLineIndent*: int
+      line*, column*: int32
+    currentLineIndent*: int32
   RotReader* = object
     buffer*: LoadBuffer
     #bufferLocks*: int
@@ -64,6 +63,8 @@ when declared(File):
   proc initRotReader*(file: File, loadAmount = 16, bufferCapacity = 32, filename = ""): RotReader =
     result = RotReader(buffer: initLoadBuffer(file, loadAmount, bufferCapacity), filename: filename)
     resetReader(result)
+
+{.push checks: off, stacktrace: off.}
 
 proc loadBufferOne(reader: var RotReader) {.inline.} =
   let remove = reader.buffer.loadOnce()
@@ -136,7 +137,6 @@ proc peekMatch*(reader: var RotReader, c: char, offset = 0): bool =
 proc advance(reader: var RotReader, c: char) =
   ## updates line and column considering \r\n, tracks indent
   let prevPos = reader.state.pos
-  reader.state.current = c
   inc reader.state.pos
   if c == '\n' or
       (c == '\r' and (inc reader.state.pos;
@@ -167,9 +167,9 @@ proc advance*(reader: var RotReader) {.inline.} =
   assert worked
   advance(reader, c)
 
-proc nextChar*(reader: var RotReader): bool {.inline.} =
+proc nextChar*(reader: var RotReader, c: var char): bool {.inline.} =
   ## updates line and column considering \r\n, tracks indent
-  let c =
+  c =
     if reader.state.pos < reader.buffer.data.len:
       reader.buffer.data[reader.state.pos]
     else:
@@ -182,6 +182,10 @@ proc nextChar*(reader: var RotReader): bool {.inline.} =
   advance(reader, c)
   result = true
 
+proc nextChar*(reader: var RotReader): bool {.inline.} =
+  var c: char
+  result = nextChar(reader, c)
+
 proc nextMatch*(reader: var RotReader, s: openArray[char], offset = 0): bool {.inline.} =
   result = reader.peekMatch(s, offset)
   if result:
@@ -192,3 +196,5 @@ iterator rawChars*(reader: var RotReader): char =
   while reader.peekChar(c):
     yield c
     reader.advance(c)
+
+{.pop.}
