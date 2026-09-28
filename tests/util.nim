@@ -24,8 +24,8 @@ proc b*(args: varargs[RotTerm]): RotTerm =
 
 template match*(s: string, b: RotTerm) =
   checkpoint s
-  let parsed = parseRot(s)
-  let a = RotTerm(kind: Block, `block`: parsed)
+  let parsed = parseRotBlock(s)
+  let a = asTerm(parsed)
   check a == b
 
 template match*(arr: openarray[(string, RotTerm)]) =

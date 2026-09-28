@@ -1,4 +1,4 @@
-import fleu/[flush_writer, flush_buffer], std/streams
+import ./data, fleu/[flush_writer, flush_buffer], std/streams
 
 type RotWriter* = IndentFlushWriter
 
@@ -23,25 +23,27 @@ when declared(File):
 type
   PhraseSeparator* = enum Comma, Space, CommaSpace
   BlockSeparator* = enum Semicolon, Newline, SemicolonNewline
-  RotGeneratorFormat* = object
+  RotGenFormat* = object
     indentBlocks*: bool
     betweenItems*: PhraseSeparator
     betweenPhrases*: BlockSeparator
 
 const
-  DefaultRotGen* = RotGeneratorFormat(indentBlocks: false, betweenItems: CommaSpace, betweenPhrases: Semicolon)
-  PrettyRotGen* = RotGeneratorFormat(indentBlocks: true, betweenItems: Space, betweenPhrases: Newline)
+  InlineRotGen* = RotGenFormat(indentBlocks: false, betweenItems: CommaSpace, betweenPhrases: Semicolon)
+  CompactRotGen* = RotGenFormat(indentBlocks: false, betweenItems: Comma, betweenPhrases: Semicolon)
+  ReadableRotGen* = RotGenFormat(indentBlocks: true, betweenItems: Space, betweenPhrases: Newline)
+  VerboseRotGen* = RotGenFormat(indentBlocks: true, betweenItems: CommaSpace, betweenPhrases: SemicolonNewline)
 
 proc addText*(writer: var RotWriter, s: string) =
+  writer.write '"'
   let oldIndent = writer.state.level
   writer.state.level = 0
-  writer.write '"'
   for c in s:
     if c == '"':
       writer.write c
     writer.write c
-  writer.write '"'
   writer.state.level = oldIndent
+  writer.write '"'
 
 proc addSymbol*(writer: var RotWriter, s: string) =
   const SimpleChars = {'A'..'Z', 'a'..'z', '0'..'9', '_', '.', '-', '+'}
@@ -60,6 +62,9 @@ proc addSymbol*(writer: var RotWriter, s: string) =
   else:
     writer.write s
 
+proc addUnit*(writer: var RotWriter) =
+  writer.write "()"
+
 type ItemList* = object
   needsSeparator*: bool
 
@@ -67,7 +72,7 @@ type PhraseList* = object
   needsSeparator*: bool
   pendingIndent*: bool
 
-proc maybeSeparateItem*(format: RotGeneratorFormat, writer: var RotWriter, list: var ItemList) =
+proc maybeSeparateItem*(format: RotGenFormat, writer: var RotWriter, list: var ItemList) =
   if list.needsSeparator:
     case format.betweenItems
     of Comma: writer.write ','
@@ -76,14 +81,14 @@ proc maybeSeparateItem*(format: RotGeneratorFormat, writer: var RotWriter, list:
   else:
     list.needsSeparator = true
 
-proc maybeAssociateItem*(format: RotGeneratorFormat, writer: var RotWriter, list: var ItemList) =
+proc maybeAssociateItem*(format: RotGenFormat, writer: var RotWriter, list: var ItemList) =
   doAssert list.needsSeparator
   if format.betweenItems in {Space, CommaSpace}:
     writer.write " = "
   else:
     writer.write '='
 
-proc maybeSeparatePhrase*(format: RotGeneratorFormat, writer: var RotWriter, list: var PhraseList) =
+proc maybeSeparatePhrase*(format: RotGenFormat, writer: var RotWriter, list: var PhraseList) =
   if list.needsSeparator:
     case format.betweenPhrases
     of Semicolon:
@@ -99,49 +104,117 @@ proc maybeSeparatePhrase*(format: RotGeneratorFormat, writer: var RotWriter, lis
         writer.addIndent()
       writer.write '\n'
 
-proc initItemList*(#[format: RotGeneratorFormat, writer: var RotWriter]#): ItemList {.inline.} =
+proc initItemList*(#[format: RotGenFormat, writer: var RotWriter]#): ItemList {.inline.} =
   result = ItemList(needsSeparator: false)
 
 proc initPhraseList*(indent: bool): PhraseList {.inline.} =
   result = PhraseList(needsSeparator: false, pendingIndent: indent)
 
-template add*(list: var ItemList, format: RotGeneratorFormat, writer: var RotWriter, body: typed) =
-  maybeSeparateItem(format, writer, list.needsSeparator)
+proc finishPhraseList*(list: var PhraseList, format: RotGenFormat, writer: var RotWriter) {.inline.} =
+  if list.needsSeparator and format.betweenPhrases in {Newline, SemicolonNewline}:
+    writer.write '\n'
+    if list.pendingIndent:
+      writer.removeIndent()
+
+template add*(list: var ItemList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+  maybeSeparateItem(format, writer, list)
   body
 
-template associate*(list: var ItemList, format: RotGeneratorFormat, writer: var RotWriter, body: typed) =
-  maybeAssociateItem(format, writer, list.needsSeparator)
+template associate*(list: var ItemList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+  maybeAssociateItem(format, writer, list)
   body
 
-template add*(list: var PhraseList, format: RotGeneratorFormat, writer: var RotWriter, body: typed) =
-  maybeSeparatePhrase(format, writer, list.needsSeparator)
+template add*(list: var PhraseList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+  maybeSeparatePhrase(format, writer, list)
+  body
 
-template addClosedPhrase*(list: var ItemList, format: RotGeneratorFormat, writer: var RotWriter, body: typed) =
+template closePhrase*(format: RotGenFormat, writer: var RotWriter, body: typed) =
   writer.write '('
-  list = initItemList()
   body
   writer.write ')'
 
-template addClosedPhraseBlock*(list: var ItemList, format: RotGeneratorFormat, writer: var RotWriter, body: typed) =
+template closePhraseBlock*(format: RotGenFormat, writer: var RotWriter, body: typed) =
   writer.write '['
-  list = initItemList()
   body
   writer.write ']'
 
-template addOpenPhrase*(list: var ItemList, format: RotGeneratorFormat, writer: var RotWriter, body: typed) =
+template withItems*(list: var ItemList, format: RotGenFormat, writer: var RotWriter, body: typed) =
   list = initItemList()
   body
 
-template addClosedBlock*(list: var PhraseList, format: RotGeneratorFormat, writer: var RotWriter, body: typed) =
+template closeBlock*(format: RotGenFormat, writer: var RotWriter, body: typed) =
   writer.write '{'
-  list = initPhraseList(indent = format.indentBlocks)
   body
-  if list.needsSeparator and format.betweenPhrases in {Newline, SemicolonNewline}:
-    if list.pendingIndent:
-      writer.removeIndent()
-    writer.write '\n'
   writer.write '}'
 
-template addOpenBlock*(list: var PhraseList, format: RotGeneratorFormat, writer: var RotWriter, body: typed) =
+template withLevelPhrases*(list: var PhraseList, format: RotGenFormat, writer: var RotWriter, body: typed) =
   list = initPhraseList(indent = false)
   body
+  finishPhraseList(list, format, writer)
+
+template withIndentedPhrases*(list: var PhraseList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+  list = initPhraseList(indent = format.indentBlocks)
+  body
+  finishPhraseList(list, format, writer)
+
+proc prettyPrint*(writer: var RotWriter, term: RotTerm, format: RotGenFormat = ReadableRotGen) {.gcsafe.}
+
+proc prettyPrintEach*(writer: var RotWriter, phrase: RotPhrase, format: RotGenFormat = ReadableRotGen) =
+  var list: ItemList
+  list.withItems format, writer:
+    for item in phrase.items:
+      if item.associated:
+        list.associate format, writer:
+          prettyPrint(writer, item.term, format)
+      else:
+        list.add format, writer:
+          prettyPrint(writer, item.term, format)
+
+proc prettyPrintEach*(writer: var RotWriter, `block`: RotBlock, format: RotGenFormat = ReadableRotGen) =
+  var list: PhraseList
+  list.withLevelPhrases format, writer:
+    for phrase in `block`.phrases:
+      list.add format, writer:
+        prettyPrintEach(writer, phrase, format)
+
+proc prettyPrint*(writer: var RotWriter, term: RotTerm, format: RotGenFormat = ReadableRotGen) =
+  case term.kind
+  of Unit: writer.addUnit()
+  of Text: writer.addText(term.text)
+  of Symbol: writer.addSymbol(term.symbol)
+  of Phrase:
+    closePhrase format, writer:
+      prettyPrintEach(writer, term.phrase, format)
+  of Block:
+    closeBlock format, writer:
+      var list: PhraseList
+      list.withIndentedPhrases format, writer:
+        for phrase in term.block.phrases:
+          list.add format, writer:
+            prettyPrintEach(writer, phrase, format)
+
+proc prettyPrint*(term: RotTerm, format: RotGenFormat = ReadableRotGen): string =
+  var writer = initRotWriter()
+  prettyPrint(writer, term, format)
+  result = writer.finishWrite()
+
+proc prettyPrintEach*(`block`: RotBlock, format: RotGenFormat = ReadableRotGen): string =
+  var writer = initRotWriter()
+  prettyPrintEach(writer, `block`, format)
+  result = writer.finishWrite()
+
+proc prettyPrintEach*(phrase: RotPhrase, format: RotGenFormat = ReadableRotGen): string =
+  var writer = initRotWriter()
+  prettyPrintEach(writer, phrase, format)
+  result = writer.finishWrite()
+
+proc prettyPrintUnwrap*(term: RotTerm, format: RotGenFormat = ReadableRotGen): string =
+  var writer = initRotWriter()
+  case term.kind
+  of Block:
+    prettyPrintEach(writer, term.block, format)
+  of Phrase:
+    prettyPrintEach(writer, term.phrase, format)
+  else:
+    prettyPrint(writer, term, format)
+  result = writer.finishWrite()

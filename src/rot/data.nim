@@ -32,6 +32,12 @@ proc rotText*(s: sink string): RotTerm {.inline.} =
 proc rotSymbol*(s: sink string): RotTerm {.inline.} =
   result = RotTerm(kind: Symbol, symbol: s)
 
+proc asTerm*(phrase: sink RotPhrase): RotTerm {.inline.} =
+  result = RotTerm(kind: Phrase, phrase: phrase)
+
+proc asTerm*(`block`: sink RotBlock): RotTerm {.inline.} =
+  result = RotTerm(kind: Block, `block`: `block`)
+
 type RotAssociated* = distinct RotTerm
 
 proc associated*(a: sink RotTerm): RotAssociated {.inline.} =
@@ -62,6 +68,9 @@ proc head*(phrase: RotPhrase): lent RotTerm {.inline.} =
 
 proc head*(phrase: var RotPhrase): var RotTerm {.inline.} =
   phrase.items[0].term
+
+proc hasTail*(phrase: RotPhrase): bool {.inline.} =
+  phrase.items.len > 1
 
 template tail*(phrase: RotPhrase): openArray[RotItem] =
   phrase.items.toOpenArray(1, phrase.items.len - 1)

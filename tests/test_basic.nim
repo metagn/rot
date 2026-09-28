@@ -63,8 +63,8 @@ p = "q"
 test "block equivalents":
   for (s, b) in basicTests.items:
     checkpoint s
-    let parsed = parseRot(s)
-    let a = RotTerm(kind: Block, `block`: parsed)
+    let parsed = parseRotBlock(s)
+    let a = asTerm(parsed)
     check a == b
   allTests.add basicTests
 
@@ -571,11 +571,9 @@ test "spec additional syntax":
 test "ugly print equivalence":
   for a, b in allTests.items:
     checkpoint a
-    let parsed = parseRot(a)
-    let uglyPrinted = uglyPrint(RotTerm(kind: Block, `block`: parsed))
+    let parsed = parseRotBlock(a)
+    let uglyPrinted = uglyPrint(asTerm(parsed))
     checkpoint uglyPrinted
-    let parsedAgain = parseRot(uglyPrinted)
-    check parsedAgain.phrases.len == 1
-    check parsedAgain.phrases[0].items.len == 1
-    check parsedAgain.phrases[0].items[0].term.kind == Block
-    check parsedAgain.phrases[0].items[0].term.block == parsed
+    let parsedAgain = parseRotTerm(uglyPrinted)
+    check parsedAgain.kind == Block
+    check parsedAgain.block == parsed
