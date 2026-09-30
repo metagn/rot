@@ -34,7 +34,7 @@ f   ="g"
 "i"
 j = "k"
 """
-let format = DefaultRotFormat
+let format = DefaultRot
 
 test "line stream":
   var reader = initRotReader(lineLoader(s))

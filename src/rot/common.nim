@@ -10,7 +10,8 @@ type
     DisableDelimiter,
     ConcatenateSymbol, # implies disabled
     TreatAsSymbolStart # implies disabled
-  RotFormat* = object
+  Rot* = object
+    ## rot syntax options
     colon*: SpecialCharacterStrategy
     pipe*: SpecialCharacterStrategy
     bracket*: SpecialCharacterStrategy
@@ -21,7 +22,7 @@ type
     line*, column*: int
     simpleMessage*: string
 
-const DefaultRotFormat* = RotFormat(
+const DefaultRot* = Rot(
   colon: EnableFeature,
   pipe: EnableFeature,
   bracket: EnableFeature,
@@ -31,7 +32,7 @@ const DefaultRotFormat* = RotFormat(
 
 const DefaultSymbolDisallowedChars = {',', ';', ':', '|', '=', '{', '}', '(', ')', '[', ']', '#'} + Whitespace
 
-proc symbolDisallowedChars*(format: RotFormat): set[char] =
+proc symbolDisallowedChars*(format: Rot): set[char] =
   result = DefaultSymbolDisallowedChars
   if format.colon == TreatAsSymbol:
     result.excl(':')
@@ -46,7 +47,7 @@ proc symbolDisallowedChars*(format: RotFormat): set[char] =
   if format.newline == TreatAsSymbolStart:
     result.excl(Newlines)
 
-proc symbolConcatChars*(format: RotFormat): set[char] =
+proc symbolConcatChars*(format: Rot): set[char] =
   result = {}
   if format.inlineSpace == ConcatenateSymbol:
     result.incl(Whitespace - Newlines)

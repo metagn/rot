@@ -23,16 +23,16 @@ when declared(File):
 type
   PhraseSeparator* = enum Comma, Space, CommaSpace
   BlockSeparator* = enum Semicolon, Newline, SemicolonNewline
-  RotGenFormat* = object
+  RotGen* = object
     indentBlocks*: bool
     betweenItems*: PhraseSeparator
     betweenPhrases*: BlockSeparator
 
 const
-  InlineRotGen* = RotGenFormat(indentBlocks: false, betweenItems: CommaSpace, betweenPhrases: Semicolon)
-  CompactRotGen* = RotGenFormat(indentBlocks: false, betweenItems: Comma, betweenPhrases: Semicolon)
-  ReadableRotGen* = RotGenFormat(indentBlocks: true, betweenItems: Space, betweenPhrases: Newline)
-  VerboseRotGen* = RotGenFormat(indentBlocks: true, betweenItems: CommaSpace, betweenPhrases: SemicolonNewline)
+  InlineRotGen* = RotGen(indentBlocks: false, betweenItems: CommaSpace, betweenPhrases: Semicolon)
+  CompactRotGen* = RotGen(indentBlocks: false, betweenItems: Comma, betweenPhrases: Semicolon)
+  ReadableRotGen* = RotGen(indentBlocks: true, betweenItems: Space, betweenPhrases: Newline)
+  VerboseRotGen* = RotGen(indentBlocks: true, betweenItems: CommaSpace, betweenPhrases: SemicolonNewline)
 
 proc addText*(writer: var RotWriter, s: string) =
   writer.write '"'
@@ -72,7 +72,7 @@ type PhraseList* = object
   needsSeparator*: bool
   pendingIndent*: bool
 
-proc maybeSeparateItem*(format: RotGenFormat, writer: var RotWriter, list: var ItemList) =
+proc maybeSeparateItem*(format: RotGen, writer: var RotWriter, list: var ItemList) =
   if list.needsSeparator:
     case format.betweenItems
     of Comma: writer.write ','
@@ -81,14 +81,14 @@ proc maybeSeparateItem*(format: RotGenFormat, writer: var RotWriter, list: var I
   else:
     list.needsSeparator = true
 
-proc maybeAssociateItem*(format: RotGenFormat, writer: var RotWriter, list: var ItemList) =
+proc maybeAssociateItem*(format: RotGen, writer: var RotWriter, list: var ItemList) =
   doAssert list.needsSeparator
   if format.betweenItems in {Space, CommaSpace}:
     writer.write " = "
   else:
     writer.write '='
 
-proc maybeSeparatePhrase*(format: RotGenFormat, writer: var RotWriter, list: var PhraseList) =
+proc maybeSeparatePhrase*(format: RotGen, writer: var RotWriter, list: var PhraseList) =
   if list.needsSeparator:
     case format.betweenPhrases
     of Semicolon:
@@ -104,62 +104,62 @@ proc maybeSeparatePhrase*(format: RotGenFormat, writer: var RotWriter, list: var
         writer.addIndent()
       writer.write '\n'
 
-proc initItemList*(#[format: RotGenFormat, writer: var RotWriter]#): ItemList {.inline.} =
+proc initItemList*(#[format: RotGen, writer: var RotWriter]#): ItemList {.inline.} =
   result = ItemList(needsSeparator: false)
 
 proc initPhraseList*(indent: bool): PhraseList {.inline.} =
   result = PhraseList(needsSeparator: false, pendingIndent: indent)
 
-proc finishPhraseList*(list: var PhraseList, format: RotGenFormat, writer: var RotWriter) {.inline.} =
+proc finishPhraseList*(list: var PhraseList, format: RotGen, writer: var RotWriter) {.inline.} =
   if list.needsSeparator and format.betweenPhrases in {Newline, SemicolonNewline}:
     writer.write '\n'
     if list.pendingIndent:
       writer.removeIndent()
 
-template add*(list: var ItemList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+template add*(list: var ItemList, format: RotGen, writer: var RotWriter, body: typed) =
   maybeSeparateItem(format, writer, list)
   body
 
-template associate*(list: var ItemList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+template associate*(list: var ItemList, format: RotGen, writer: var RotWriter, body: typed) =
   maybeAssociateItem(format, writer, list)
   body
 
-template add*(list: var PhraseList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+template add*(list: var PhraseList, format: RotGen, writer: var RotWriter, body: typed) =
   maybeSeparatePhrase(format, writer, list)
   body
 
-template closePhrase*(format: RotGenFormat, writer: var RotWriter, body: typed) =
+template closePhrase*(format: RotGen, writer: var RotWriter, body: typed) =
   writer.write '('
   body
   writer.write ')'
 
-template closePhraseBlock*(format: RotGenFormat, writer: var RotWriter, body: typed) =
+template closePhraseBlock*(format: RotGen, writer: var RotWriter, body: typed) =
   writer.write '['
   body
   writer.write ']'
 
-template withItems*(list: var ItemList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+template withItems*(list: var ItemList, format: RotGen, writer: var RotWriter, body: typed) =
   list = initItemList()
   body
 
-template closeBlock*(format: RotGenFormat, writer: var RotWriter, body: typed) =
+template closeBlock*(format: RotGen, writer: var RotWriter, body: typed) =
   writer.write '{'
   body
   writer.write '}'
 
-template withLevelPhrases*(list: var PhraseList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+template withLevelPhrases*(list: var PhraseList, format: RotGen, writer: var RotWriter, body: typed) =
   list = initPhraseList(indent = false)
   body
   finishPhraseList(list, format, writer)
 
-template withIndentedPhrases*(list: var PhraseList, format: RotGenFormat, writer: var RotWriter, body: typed) =
+template withIndentedPhrases*(list: var PhraseList, format: RotGen, writer: var RotWriter, body: typed) =
   list = initPhraseList(indent = format.indentBlocks)
   body
   finishPhraseList(list, format, writer)
 
-proc prettyPrint*(writer: var RotWriter, term: RotTerm, format: RotGenFormat = ReadableRotGen) {.gcsafe.}
+proc prettyPrint*(writer: var RotWriter, term: RotTerm, format: RotGen = ReadableRotGen) {.gcsafe.}
 
-proc prettyPrintEach*(writer: var RotWriter, phrase: RotPhrase, format: RotGenFormat = ReadableRotGen) =
+proc prettyPrintEach*(writer: var RotWriter, phrase: RotPhrase, format: RotGen = ReadableRotGen) =
   var list: ItemList
   list.withItems format, writer:
     for item in phrase.items:
@@ -170,14 +170,14 @@ proc prettyPrintEach*(writer: var RotWriter, phrase: RotPhrase, format: RotGenFo
         list.add format, writer:
           prettyPrint(writer, item.term, format)
 
-proc prettyPrintEach*(writer: var RotWriter, `block`: RotBlock, format: RotGenFormat = ReadableRotGen) =
+proc prettyPrintEach*(writer: var RotWriter, `block`: RotBlock, format: RotGen = ReadableRotGen) =
   var list: PhraseList
   list.withLevelPhrases format, writer:
     for phrase in `block`.phrases:
       list.add format, writer:
         prettyPrintEach(writer, phrase, format)
 
-proc prettyPrint*(writer: var RotWriter, term: RotTerm, format: RotGenFormat = ReadableRotGen) =
+proc prettyPrint*(writer: var RotWriter, term: RotTerm, format: RotGen = ReadableRotGen) =
   case term.kind
   of Unit: writer.addUnit()
   of Text: writer.addText(term.text)
@@ -193,22 +193,22 @@ proc prettyPrint*(writer: var RotWriter, term: RotTerm, format: RotGenFormat = R
           list.add format, writer:
             prettyPrintEach(writer, phrase, format)
 
-proc prettyPrint*(term: RotTerm, format: RotGenFormat = ReadableRotGen): string =
+proc prettyPrint*(term: RotTerm, format: RotGen = ReadableRotGen): string =
   var writer = initRotWriter()
   prettyPrint(writer, term, format)
   result = writer.finishWrite()
 
-proc prettyPrintEach*(`block`: RotBlock, format: RotGenFormat = ReadableRotGen): string =
+proc prettyPrintEach*(`block`: RotBlock, format: RotGen = ReadableRotGen): string =
   var writer = initRotWriter()
   prettyPrintEach(writer, `block`, format)
   result = writer.finishWrite()
 
-proc prettyPrintEach*(phrase: RotPhrase, format: RotGenFormat = ReadableRotGen): string =
+proc prettyPrintEach*(phrase: RotPhrase, format: RotGen = ReadableRotGen): string =
   var writer = initRotWriter()
   prettyPrintEach(writer, phrase, format)
   result = writer.finishWrite()
 
-proc prettyPrintUnwrap*(term: RotTerm, format: RotGenFormat = ReadableRotGen): string =
+proc prettyPrintUnwrap*(term: RotTerm, format: RotGen = ReadableRotGen): string =
   var writer = initRotWriter()
   case term.kind
   of Block:
